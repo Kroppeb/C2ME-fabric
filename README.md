@@ -22,8 +22,9 @@ So backup your worlds and practice good game modding skills.
 ## Branch development status
 | Branch                     | Status                               |
 |----------------------------|--------------------------------------|
-| fabric/ver/1.18            | Active, Mainline                     |
-| fabric/backport/ver/1.18.1 | Bugfixes only                        |
+| fabric/ver/1.19            | Active, Mainline                     |
+| fabric/ver/1.18            | Bugfixes only                        |
+| fabric/backport/ver/1.18.1 | Inactive                             |
 | fabric/ver/1.17            | Inactive                             |
 | fabric/ver/1.16.5          | Inactive                             |
 | forge/ver/1.16.5           | Partial[^forge_partial116], Inactive |
@@ -32,17 +33,17 @@ So backup your worlds and practice good game modding skills.
 
 ## Downloads
 You can find semi-stable releases here: https://github.com/RelativityMC/C2ME-fabric/releases  
-You can find development builds here: https://ci.codemc.io/job/RelativityMC/job/C2ME-fabric
 
-## Mod compatibility
-<!-- Update this accordingly when updating ModpackConfig.groovy -->
+### Development builds
+**Note: Development builds may modify the config files in a way unreadable by previous versions. You may encounter crashes or config reset when rolling back to previous versions. Please always backup your config.**
 
-TODO for 1.18
+You can find development builds here: https://ci.codemc.io/job/RelativityMC/job/C2ME-fabric  
+Note that these builds may contain more bugfixes and performance improvements but are less tested.  
+If you have encountered any problems in release builds, give development builds a try before reporting.
 
 ## Support
 Our issue tracker: [link](https://github.com/RelativityMC/C2ME-fabric/issues)  
 Our discord server: [link](https://discord.io/ishlandbukkit)
-
 
 ## Building and setting up
 JDK 17+ is required to build and use C2ME  

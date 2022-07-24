@@ -2,7 +2,7 @@
   "parent": "c2me.mixins.json",
   "required": true,
   "package": "com.ishland.c2me.opts.scheduling.mixin",
-  "plugin": "com.ishland.c2me.base.common.ModuleMixinPlugin",
+  "plugin": "com.ishland.c2me.opts.scheduling.mixin.MixinPlugin",
   "mixins": [
     "fix_unload.MixinThreadedAnvilChunkStorage",
     "general_overheads.MixinThreadedAnvilChunkStorage",
@@ -15,6 +15,7 @@
     "mid_tick_chunk_tasks.MixinServerChunkManager",
     "mid_tick_chunk_tasks.MixinServerWorld",
     "mid_tick_chunk_tasks.MixinWorld",
+    "ordering.player_move.MixinServerPlayNetworkHandler",
     "shutdown.MixinMinecraftServer",
     "task_scheduling.MixinEntityChunkDataAccess",
     "task_scheduling.MixinThreadedAnvilChunkStorage",

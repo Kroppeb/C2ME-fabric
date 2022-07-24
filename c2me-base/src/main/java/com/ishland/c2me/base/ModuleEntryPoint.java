@@ -14,7 +14,7 @@ public class ModuleEntryPoint {
             .comment("Configures the parallelism of global executor")
             .getLong(getDefaultGlobalExecutorParallelism(), getDefaultGlobalExecutorParallelism(), ConfigSystem.LongChecks.THREAD_COUNT);
 
-    private static int getDefaultGlobalExecutorParallelism() {
+    public static int getDefaultGlobalExecutorParallelism() {
         return Math.max(1, Math.min(getDefaultParallelismCPU(), getDefaultParallelismHeap()));
     }
 
@@ -38,7 +38,7 @@ public class ModuleEntryPoint {
         if (PlatformDependent.isJ9Jvm()) {
             return (int) ((memoryInGiB() + (isClientSide() ? -0.6 : -0.2)) / 0.5) + defaultParallelismEnvTypeOffset();
         } else {
-            return (int) ((memoryInGiB() + (isClientSide() ? -1.8 : -0.6)) / 1.4) + defaultParallelismEnvTypeOffset();
+            return (int) ((memoryInGiB() + (isClientSide() ? -1.2 : -0.6)) / 1.2) + defaultParallelismEnvTypeOffset();
         }
     }
 

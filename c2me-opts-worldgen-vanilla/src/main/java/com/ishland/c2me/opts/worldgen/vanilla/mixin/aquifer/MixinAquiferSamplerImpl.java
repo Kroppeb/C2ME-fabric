@@ -5,12 +5,12 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.random.Random;
+import net.minecraft.util.math.random.RandomSplitter;
 import net.minecraft.world.dimension.DimensionType;
 import net.minecraft.world.gen.chunk.AquiferSampler;
 import net.minecraft.world.gen.chunk.ChunkNoiseSampler;
 import net.minecraft.world.gen.densityfunction.DensityFunction;
-import net.minecraft.world.gen.random.AbstractRandom;
-import net.minecraft.world.gen.random.RandomDeriver;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -60,7 +60,7 @@ public class MixinAquiferSamplerImpl {
 
     @Shadow @Final private long[] blockPositions;
 
-    @Shadow @Final private RandomDeriver randomDeriver;
+    @Shadow @Final private RandomSplitter randomDeriver;
 
     @Shadow
     @Final
@@ -92,7 +92,7 @@ public class MixinAquiferSamplerImpl {
 
     @Shadow
     @Final
-    private static double field_36221;
+    private static double NEEDS_FLUID_TICK_DISTANCE_THRESHOLD;
 
     @Shadow
     private boolean needsFluidTick;
@@ -102,7 +102,7 @@ public class MixinAquiferSamplerImpl {
     private AquiferSampler.FluidLevelSampler fluidLevelSampler;
 
     @Unique
-    private AbstractRandom randomInstance;
+    private Random randomInstance;
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void onInit(CallbackInfo info) {
@@ -187,7 +187,7 @@ public class MixinAquiferSamplerImpl {
                 double e = 1.0 - Math.abs(p - o) / 25.0; // C2ME - inline
                 final BlockState fluidLevel2BlockState = fluidLevel2.getBlockState(blockY);
                 if (e <= 0.0) {
-                    this.needsFluidTick = e >= field_36221;
+                    this.needsFluidTick = e >= NEEDS_FLUID_TICK_DISTANCE_THRESHOLD;
                     return fluidLevel2BlockState;
                 } else {
                     final boolean fluidLevel2BlockStateOfWater = fluidLevel2BlockState.isOf(Blocks.WATER);
@@ -382,7 +382,7 @@ public class MixinAquiferSamplerImpl {
         for (int[] is : field_34581) {
             int o = i + (is[0] << 4); // C2ME - inline
             int p = k + (is[1] << 4); // C2ME - inline
-            int q = this.chunkNoiseSampler.method_39900(o, p);
+            int q = this.chunkNoiseSampler.estimateSurfaceHeight(o, p);
             int r = q + 8;
             boolean bl2 = is[0] == 0 && is[1] == 0;
             if (bl2 && n > r) {
