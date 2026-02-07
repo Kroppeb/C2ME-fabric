@@ -2,25 +2,32 @@ package com.ishland.c2me.rewrites.chunk_serializer.mixin;
 
 import com.ishland.c2me.base.common.scheduler.IVanillaChunkManager;
 import com.ishland.c2me.base.common.theinterface.IDirectStorage;
-import com.ishland.c2me.base.mixin.access.IChunkHolder;
 import com.ishland.c2me.base.mixin.access.IVersionedChunkStorage;
+import com.ishland.c2me.rewrites.chunk_serializer.common.ChunkDataDeserializer;
 import com.ishland.c2me.rewrites.chunk_serializer.common.ChunkDataSerializer;
+import com.ishland.c2me.rewrites.chunk_serializer.common.NbtReader;
 import com.ishland.c2me.rewrites.chunk_serializer.common.NbtWriter;
 import com.ishland.c2me.rewrites.chunk_serializer.common.utils.ValidationUtils;
 import com.mojang.datafixers.DataFixer;
+import net.minecraft.SharedConstants;
 import net.minecraft.datafixer.DataFixTypes;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.server.world.ChunkHolder;
 import net.minecraft.server.world.ServerChunkLoadingManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.structure.StructureStart;
+import net.minecraft.util.Util;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.profiler.Profilers;
+import net.minecraft.util.thread.ThreadExecutor;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkStatus;
 import net.minecraft.world.chunk.ChunkType;
 import net.minecraft.world.chunk.SerializedChunk;
+import net.minecraft.world.gen.chunk.ChunkGenerator;
 import net.minecraft.world.poi.PointOfInterestStorage;
+import net.minecraft.world.storage.StorageIoWorker;
 import net.minecraft.world.storage.StorageKey;
 import net.minecraft.world.storage.VersionedChunkStorage;
 import org.jetbrains.annotations.Nullable;
@@ -31,9 +38,9 @@ import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Function;
 
 @Mixin(value = ServerChunkLoadingManager.class, priority = 1099)
 public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStorage {
@@ -44,6 +51,10 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
     @Final
     @Shadow
     private PointOfInterestStorage pointOfInterestStorage;
+
+    @Final
+    @Shadow
+    private ThreadExecutor<Runnable> mainThreadExecutor;
 
     @Final
     @Shadow
@@ -60,9 +71,28 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
     private native byte mark(ChunkPos chunkPos, ChunkType chunkType);
 
 
-    @Shadow protected abstract @Nullable ChunkHolder getCurrentChunkHolder(long pos);
+    @Shadow
+    protected abstract @Nullable ChunkHolder getCurrentChunkHolder(long pos);
 
-    @Shadow @Final private AtomicInteger chunksBeingSavedCount;
+    @Shadow
+    @Final
+    private AtomicInteger chunksBeingSavedCount;
+
+    @Shadow
+    native private CompletableFuture<Optional<NbtCompound>> getUpdatedChunkNbt(ChunkPos chunkPos);
+
+    @Shadow
+    native private Chunk getProtoChunk(ChunkPos chunkPos);
+
+    @Shadow
+    native private Chunk recoverFromException(Throwable throwable, ChunkPos chunkPos);
+
+    @Shadow
+    native private NbtCompound updateChunkNbt(NbtCompound nbt);
+
+    @Shadow
+    native protected ChunkGenerator getChunkGenerator();
+
 
     /**
      * @author Kroppeb
@@ -129,4 +159,59 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
             return false;
         }
     }
+
+    public boolean needsNbtUpgrading(
+            NbtReader nbtReader
+    ) {
+        int i = nbtReader.findDataVersion();
+        return i == SharedConstants.getGameVersion().dataVersion().id();
+    }
+
+    /**
+     * @author Kroppeb
+     * @reason Reduces allocations
+     */
+    @Overwrite()
+    private CompletableFuture<Chunk> loadChunk(
+            ChunkPos pos
+    ) {
+        CompletableFuture< byte @Nullable[]> data = ((IDirectStorage) ((IVersionedChunkStorage) this).getWorker()).readRawChunkData(pos);
+        CompletableFuture<Optional< @Nullable SerializedChunk>> completableFuture = data.thenApplyAsync(rawData -> {
+            if (rawData == null) return Optional.empty();
+            NbtReader nbtReader = new NbtReader(rawData);
+
+            SerializedChunk serializedChunk;
+            if (this.needsNbtUpgrading(nbtReader)){
+                // fallback to vanilla logic
+                NbtCompound nbtCompound = nbtReader.readCompound();
+                nbtCompound = this.updateChunkNbt(nbtCompound);
+                serializedChunk = SerializedChunk.fromNbt(this.world, this.world.getPalettesFactory(), nbtCompound);
+            }else {
+                // Fastpath, vroom vroom
+                serializedChunk = ChunkDataDeserializer.fromNbt(world, this.world.getPalettesFactory(), nbtReader);
+            }
+
+            if (serializedChunk == null) {
+                LOGGER.error("Chunk file at {} is missing level data, skipping", pos);
+            }
+
+            // So what is mojang doing here, this confuses me?
+            return Optional.of(serializedChunk);
+        }, Util.getMainWorkerExecutor().named("parseChunk"));
+
+
+        CompletableFuture<?> completableFuture2 = this.pointOfInterestStorage.load(pos);
+        return completableFuture.thenCombine(completableFuture2, (optional, object) -> optional).thenApplyAsync(serializedChunk -> {
+            Profilers.get().visit("chunkLoad");
+            if (serializedChunk.isPresent()) {
+                Chunk chunk = serializedChunk.get().convert(this.world, this.pointOfInterestStorage, this.getStorageKey(), pos);
+                this.mark(pos, chunk.getStatus().getChunkType());
+                return chunk;
+            } else {
+                return this.getProtoChunk(pos);
+            }
+        }, this.mainThreadExecutor).exceptionallyAsync(throwable -> this.recoverFromException(throwable, pos), this.mainThreadExecutor);
+    }
+
+
 }

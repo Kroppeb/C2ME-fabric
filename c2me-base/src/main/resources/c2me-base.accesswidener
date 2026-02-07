@@ -71,6 +71,8 @@ accessible    method    net/minecraft/world/gen/surfacebuilder/MaterialRules$Seq
 accessible    method    net/minecraft/world/storage/RegionBasedStorage                                 <init>              (Lnet/minecraft/world/storage/StorageKey;Ljava/nio/file/Path;Z)V
 accessible    method    net/minecraft/world/gen/densityfunction/DensityFunctionTypes$Wrapping          <init>              (Lnet/minecraft/world/gen/densityfunction/DensityFunctionTypes$Wrapping$Type;Lnet/minecraft/world/gen/densityfunction/DensityFunction;)V
 accessible    method    net/minecraft/world/gen/densityfunction/DensityFunctionTypes$RangeChoice       <init>              (Lnet/minecraft/world/gen/densityfunction/DensityFunction;DDLnet/minecraft/world/gen/densityfunction/DensityFunction;Lnet/minecraft/world/gen/densityfunction/DensityFunction;)V
+accessible    method    net/minecraft/world/chunk/BelowZeroRetrogen                                    <init>              (Lnet/minecraft/world/chunk/ChunkStatus;Ljava/util/Optional;)V
+accessible    method    net/minecraft/world/chunk/PalettedContainer                                    <init>              (Lnet/minecraft/world/chunk/PaletteProvider;Lnet/minecraft/world/chunk/PaletteType;Lnet/minecraft/util/collection/PaletteStorage;Lnet/minecraft/world/chunk/Palette;)V
 
 extendable    method    net/minecraft/server/world/ChunkHolder           setCompletedLevel      (I)V
 extendable    method    net/minecraft/world/chunk/AbstractChunkHolder    generate               (Lnet/minecraft/world/chunk/ChunkGenerationStep;Lnet/minecraft/world/ChunkLoadingManager;Lnet/minecraft/util/collection/BoundedRegionArray;)Ljava/util/concurrent/CompletableFuture;
@@ -90,3 +92,8 @@ accessible    field    net/minecraft/world/storage/StorageIoWorker$Result       
 accessible    field     net/minecraft/util/math/noise/SimplexNoiseSampler                   GRADIENTS           [[I
 accessible    field     net/minecraft/world/gen/chunk/AquiferSampler$FluidLevel             y                   I
 accessible    field     net/minecraft/world/gen/chunk/AquiferSampler$FluidLevel             state               Lnet/minecraft/block/BlockState;
+accessible    field    net/minecraft/world/gen/chunk/BlendingData                           HORIZONTAL_BIOME_COUNT I
+
+
+accessible method net/minecraft/world/chunk/PaletteProvider createTypeFromSize (I)Lnet/minecraft/world/chunk/PaletteType;
+accessible method net/minecraft/world/chunk/PalettedContainer repack (Lnet/minecraft/util/collection/PaletteStorage;Lnet/minecraft/world/chunk/Palette;Lnet/minecraft/world/chunk/Palette;)[I

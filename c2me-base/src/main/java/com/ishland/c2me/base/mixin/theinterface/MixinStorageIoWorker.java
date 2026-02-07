@@ -8,13 +8,16 @@ import net.minecraft.world.storage.RegionBasedStorage;
 import net.minecraft.world.storage.RegionFile;
 import net.minecraft.world.storage.StorageIoWorker;
 import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.Map;
 import java.util.SequencedMap;
 import java.util.concurrent.CompletableFuture;
@@ -56,5 +59,25 @@ public abstract class MixinStorageIoWorker implements IDirectStorage {
     @Override
     public CompletableFuture<Void> setRawChunkData(ChunkPos pos, CompletableFuture<byte[]> data) {
         return this.run(() -> this.c2me$setRawChunkData0(pos, data.toCompletableFuture().join())).thenCompose(Function.identity());
+    }
+
+    @Unique
+    private CompletableFuture< byte @Nullable []> c2me$readRawChunkData(ChunkPos pos) {
+        try {
+            final RegionFile regionFile = ((IRegionBasedStorage) (Object) this.storage).invokeGetRegionFile(pos);
+            try (final DataInputStream in = regionFile.getChunkInputStream(pos)) {
+                if (in == null){
+                    return CompletableFuture.completedFuture(null);
+                }
+                return CompletableFuture.completedFuture(in.readAllBytes());
+            }
+        } catch (IOException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    @Override
+    public CompletableFuture<byte @Nullable []> readRawChunkData(ChunkPos pos) {
+        return this.run(() -> this.c2me$readRawChunkData(pos)).thenCompose(Function.identity());
     }
 }

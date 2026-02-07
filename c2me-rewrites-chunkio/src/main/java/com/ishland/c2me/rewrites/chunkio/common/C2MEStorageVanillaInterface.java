@@ -7,6 +7,7 @@ import net.minecraft.nbt.scanner.NbtScanner;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.storage.StorageIoWorker;
 import net.minecraft.world.storage.StorageKey;
+import org.apache.commons.lang3.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
@@ -77,5 +78,10 @@ public class C2MEStorageVanillaInterface extends StorageIoWorker implements IDir
     @Override
     public StorageKey getStorageKey() {
         return this.backend.getStorageKey();
+    }
+
+    @Override
+    public CompletableFuture<byte @org.jspecify.annotations.Nullable []> readRawChunkData(ChunkPos pos) {
+        throw new NotImplementedException();
     }
 }
