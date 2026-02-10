@@ -3,10 +3,7 @@ package com.ishland.c2me.rewrites.chunk_serializer.mixin;
 import com.ishland.c2me.base.common.scheduler.IVanillaChunkManager;
 import com.ishland.c2me.base.common.theinterface.IDirectStorage;
 import com.ishland.c2me.base.mixin.access.IVersionedChunkStorage;
-import com.ishland.c2me.rewrites.chunk_serializer.common.ChunkDataDeserializer;
-import com.ishland.c2me.rewrites.chunk_serializer.common.ChunkDataSerializer;
-import com.ishland.c2me.rewrites.chunk_serializer.common.NbtReader;
-import com.ishland.c2me.rewrites.chunk_serializer.common.NbtWriter;
+import com.ishland.c2me.rewrites.chunk_serializer.common.*;
 import com.ishland.c2me.rewrites.chunk_serializer.common.utils.ValidationUtils;
 import com.mojang.datafixers.DataFixer;
 import net.minecraft.SharedConstants;
@@ -161,7 +158,7 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
     }
 
     public boolean needsNbtUpgrading(
-            NbtReader nbtReader
+            NbtReader2 nbtReader
     ) {
         int i = nbtReader.findDataVersion();
         return i != SharedConstants.getGameVersion().dataVersion().id();
@@ -179,7 +176,7 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
         CompletableFuture< byte @Nullable[]> data = ((IDirectStorage) ((IVersionedChunkStorage) this).getWorker()).readRawChunkData(pos);
         CompletableFuture<Optional< @Nullable SerializedChunk>> completableFuture = data.thenApplyAsync(rawData -> {
             if (rawData == null) return Optional.empty();
-            NbtReader nbtReader = new NbtReader(rawData);
+            NbtReader2 nbtReader = new NbtReader2(rawData);
 
             SerializedChunk serializedChunk;
             if (this.needsNbtUpgrading(nbtReader)){

@@ -110,11 +110,10 @@ public final class ChunkDataDeserializer {
     private static final byte[] STRING_HEIGHTMAP_TYPE_MOTION_BLOCKING_NO_LEAVES = ((HeightMapTypeAccessor) (Object) Heightmap.Type.MOTION_BLOCKING_NO_LEAVES).getNameBytes();
 
 
-
     /**
      * Mirror of {@link SerializedChunk#fromNbt(HeightLimitView, PalettesFactory, NbtCompound)}
      */
-    public static SerializedChunk fromNbt(World world, PalettesFactory palettesFactory, NbtReader nbtReader) {
+    public static SerializedChunk fromNbt(World world, PalettesFactory palettesFactory, NbtReader2 nbtReader) {
         int xPos = 0, zPos = 0;
         long lastUpdate = 0, inhabitedTime = 0;
         boolean isLightOn = false;
@@ -134,7 +133,7 @@ public final class ChunkDataDeserializer {
         List<SerializedChunk.SectionData> sections = List.of();
 
         while (true) {
-            switch (nbtReader.readByte()) {
+            switch (nbtReader.readType()) {
                 case NbtElement.END_TYPE -> {
                     // compound end
                     // filter ticks
@@ -175,7 +174,7 @@ public final class ChunkDataDeserializer {
                 }
                 case NbtElement.BYTE_TYPE -> {
                     if (nbtReader.matchesString(STRING_IS_LIGHT_ON)) {
-                        isLightOn = nbtReader.readBoolean();
+                        isLightOn = nbtReader.getByte(NbtElement.BYTE_TYPE, (byte) 0) != 0;
                     } else {
                         // raise? skip?
                         nbtReader.skipCompoundEntry();
@@ -183,9 +182,9 @@ public final class ChunkDataDeserializer {
                 }
                 case NbtElement.INT_TYPE -> {
                     if (nbtReader.matchesString(STRING_X_POS)) {
-                        xPos = nbtReader.readInt();
+                        xPos = nbtReader.getInt(NbtElement.INT_TYPE, 0);
                     } else if (nbtReader.matchesString(STRING_Z_POS)) {
-                        zPos = nbtReader.readInt();
+                        zPos = nbtReader.getInt(NbtElement.INT_TYPE, 0);
                     } else {
                         // skip ypos
                         // raise? skip?
@@ -194,9 +193,9 @@ public final class ChunkDataDeserializer {
                 }
                 case NbtElement.LONG_TYPE -> {
                     if (nbtReader.matchesString(STRING_INHABITED_TIME)) {
-                        inhabitedTime = nbtReader.readLong();
+                        inhabitedTime = nbtReader.getLong(NbtElement.LONG_TYPE, 0L);
                     } else if (nbtReader.matchesString(STRING_LAST_UPDATE)) {
-                        lastUpdate = nbtReader.readLong();
+                        lastUpdate = nbtReader.getLong(NbtElement.LONG_TYPE, 0L);
                     } else {
                         // raise? skip?
                         nbtReader.skipCompoundEntry();
@@ -211,7 +210,7 @@ public final class ChunkDataDeserializer {
                 }
                 case NbtElement.LIST_TYPE -> {
                     if (nbtReader.matchesString(STRING_BLOCK_TICKS)) {
-                        byte subType = nbtReader.readByte();
+                        byte subType = nbtReader.readListType();
                         if (subType == NbtElement.COMPOUND_TYPE) {
                             blockTicks = readTicks(nbtReader, Registries.BLOCK);
                         } else {
@@ -219,7 +218,7 @@ public final class ChunkDataDeserializer {
                             nbtReader.skipList(subType);
                         }
                     } else if (nbtReader.matchesString(STRING_FLUID_TICKS)) {
-                        byte subType = nbtReader.readByte();
+                        byte subType = nbtReader.readListType();
                         if (subType == NbtElement.COMPOUND_TYPE) {
                             fluidTicks = readTicks(nbtReader, Registries.FLUID);
                         } else {
@@ -227,13 +226,13 @@ public final class ChunkDataDeserializer {
                             nbtReader.skipList(subType);
                         }
                     } else if (nbtReader.matchesString(STRING_POST_PROCESSING)) {
-                        byte subType = nbtReader.readByte();
+                        byte subType = nbtReader.readListType();
                         if (subType == NbtElement.LIST_TYPE) {
-                            int length = nbtReader.readInt();
+                            int length = nbtReader.readListSize();
                             postProcessing = new ShortList[length];
                             for (int i = 0; i < length; i++) {
-                                byte subSubType = nbtReader.readByte();
-                                int subLength = nbtReader.readInt();
+                                byte subSubType = nbtReader.readListType();
+                                int subLength = nbtReader.readListSize();
                                 if (subLength == 0) {
                                     continue;
                                 }
@@ -247,21 +246,21 @@ public final class ChunkDataDeserializer {
                             nbtReader.skipList(subType);
                         }
                     } else if (nbtReader.matchesString(STRING_ENTITIES)) {
-                        byte subType = nbtReader.readByte();
+                        byte subType = nbtReader.readListType();
                         if (subType == NbtElement.COMPOUND_TYPE) {
                             entities = nbtReader.readCompoundList();
                         } else {
                             nbtReader.skipList(subType);
                         }
                     } else if (nbtReader.matchesString(STRING_BLOCK_ENTITIES)) {
-                        byte subType = nbtReader.readByte();
+                        byte subType = nbtReader.readListType();
                         if (subType == NbtElement.COMPOUND_TYPE) {
                             blockEntities = nbtReader.readCompoundList();
                         } else {
                             nbtReader.skipList(subType);
                         }
                     } else if (nbtReader.matchesString(STRING_SECTIONS)) {
-                        byte subType = nbtReader.readByte();
+                        byte subType = nbtReader.readListType();
                         if (subType == NbtElement.COMPOUND_TYPE) {
                             sections = readSections(
                                     nbtReader,
@@ -315,13 +314,13 @@ public final class ChunkDataDeserializer {
         }
     }
 
-    private static BlendingData.Serialized readBlendingData(NbtReader nbtReader) {
+    private static BlendingData.Serialized readBlendingData(NbtReader2 nbtReader) {
         byte seenMask = 0;  // bit 0 = minSection, bit 1 = maxSection
         int minSection = 0, maxSection = 0;
         Optional<double[]> heights = Optional.empty();
 
         while (true) {
-            switch (nbtReader.readByte()) {
+            switch (nbtReader.readType()) {
                 case NbtElement.END_TYPE -> {
                     // compound end
                     if (seenMask != 0b11) {
@@ -339,16 +338,16 @@ public final class ChunkDataDeserializer {
                 }
                 case NbtElement.INT_TYPE -> {
                     if (nbtReader.matchesString(STRING_MIN_SECTION)) {
-                        minSection = nbtReader.readInt();
+                        minSection = nbtReader.getInt(NbtElement.INT_TYPE, 0);
                         seenMask |= 0b01;
                     } else if (nbtReader.matchesString(STRING_MAX_SECTION)) {
-                        maxSection = nbtReader.readInt();
+                        maxSection = nbtReader.getInt(NbtElement.INT_TYPE, 0);
                         seenMask |= 0b10;
                     }
                 }
                 case NbtElement.LIST_TYPE -> {
                     if (nbtReader.matchesString(STRING_HEIGHTS)) {
-                        byte subType = nbtReader.readByte();
+                        byte subType = nbtReader.readListType();
                         if (subType == NbtElement.DOUBLE_TYPE) {
                             heights = Optional.of(nbtReader.readDoubleArray());
                         } else {
@@ -368,12 +367,12 @@ public final class ChunkDataDeserializer {
         }
     }
 
-    private static BelowZeroRetrogen readBelowZeroRetrogen(NbtReader nbtReader) {
+    private static BelowZeroRetrogen readBelowZeroRetrogen(NbtReader2 nbtReader) {
         ChunkStatus targetStatus = null;
         Optional<BitSet> missingBedrock = Optional.empty();
 
         while (true) {
-            switch (nbtReader.readByte()) {
+            switch (nbtReader.readType()) {
                 case NbtElement.STRING_TYPE -> {
                     if (nbtReader.matchesString(STRING_TARGET_STATUS)) {
                         targetStatus = nbtReader.readRegistry(Registries.CHUNK_STATUS);
@@ -395,7 +394,7 @@ public final class ChunkDataDeserializer {
                 }
                 case NbtElement.LIST_TYPE -> {
                     if (nbtReader.matchesString(STRING_MISSING_BEDROCK)) {
-                        byte subType = nbtReader.readByte();
+                        byte subType = nbtReader.readListType();
                         if (subType == NbtEnd.LONG_TYPE) {
                             missingBedrock = Optional.of(BitSet.valueOf(nbtReader.readLongArray()));
                         } else {
@@ -421,11 +420,11 @@ public final class ChunkDataDeserializer {
         }
     }
 
-    private static EnumMap<Heightmap.Type, long[]> readHeightmaps(NbtReader nbtReader) {
+    private static EnumMap<Heightmap.Type, long[]> readHeightmaps(NbtReader2 nbtReader) {
         EnumMap<Heightmap.Type, long[]> heightmaps = new EnumMap<>(Heightmap.Type.class);
 
         while (true) {
-            byte tag = nbtReader.readByte();
+            byte tag = nbtReader.readType();
             if (tag == NbtElement.END_TYPE) {
                 return heightmaps;
             }
@@ -454,8 +453,8 @@ public final class ChunkDataDeserializer {
         }
     }
 
-    private static <T> List<Tick<T>> readTicks(NbtReader nbtReader, Registry<T> registry) {
-        int length = nbtReader.readInt();
+    private static <T> List<Tick<T>> readTicks(NbtReader2 nbtReader, Registry<T> registry) {
+        int length = nbtReader.readListSize();
         List<Tick<T>> ticks = new ArrayList<>(length);
         for (int i = 0; i < length; i++) {
             ticks.add(readTick(nbtReader, registry));
@@ -463,13 +462,13 @@ public final class ChunkDataDeserializer {
         return ticks;
     }
 
-    private static <T> Tick<T> readTick(NbtReader nbtReader, Registry<T> registry) {
+    private static <T> Tick<T> readTick(NbtReader2 nbtReader, Registry<T> registry) {
         byte seenMask = 0;  // pt_xyz
         int t = 0, x = 0, y = 0, z = 0, p = 0;
         T i = null;
 
         while (true) {
-            switch (nbtReader.readByte()) {
+            switch (nbtReader.readType()) {
                 case NbtElement.END_TYPE -> {
                     if (seenMask != 0b11_111) {
                         if ((seenMask & 0b10_000) == 0) {
@@ -491,19 +490,19 @@ public final class ChunkDataDeserializer {
                 }
                 case NbtElement.INT_TYPE -> {
                     if (nbtReader.matchesString(STRING_CHAR_SMALL_P)) {
-                        p = nbtReader.readInt();
+                        p = nbtReader.getInt(NbtElement.INT_TYPE, 0);
                         seenMask |= 0b10_000;
                     } else if (nbtReader.matchesString(STRING_CHAR_SMALL_T)) {
-                        t = nbtReader.readInt();
+                        t = nbtReader.getInt(NbtElement.INT_TYPE, 0);
                         seenMask |= 0b01_000;
                     } else if (nbtReader.matchesString(STRING_CHAR_SMALL_X)) {
-                        x = nbtReader.readInt();
+                        x = nbtReader.getInt(NbtElement.INT_TYPE, 0);
                         seenMask |= 0b00_100;
                     } else if (nbtReader.matchesString(STRING_CHAR_SMALL_Y)) {
-                        y = nbtReader.readInt();
+                        y = nbtReader.getInt(NbtElement.INT_TYPE, 0);
                         seenMask |= 0b00_010;
                     } else if (nbtReader.matchesString(STRING_CHAR_SMALL_Z)) {
-                        z = nbtReader.readInt();
+                        z = nbtReader.getInt(NbtElement.INT_TYPE, 0);
                         seenMask |= 0b00_001;
                     } else {
                         nbtReader.skipCompoundEntry();
@@ -525,12 +524,12 @@ public final class ChunkDataDeserializer {
     }
 
     private static List<SerializedChunk.SectionData> readSections(
-            NbtReader nbtReader,
+            NbtReader2 nbtReader,
             HeightLimitView world,
             PalettesFactory palettesFactory,
             Registry<Biome> biomeRegistry
     ) {
-        int length = nbtReader.readInt();
+        int length = nbtReader.readListSize();
         if (length == 0) {
             return List.of();
         }
@@ -547,7 +546,7 @@ public final class ChunkDataDeserializer {
     }
 
     private static SerializedChunk.SectionData readSection(
-            NbtReader nbtReader,
+            NbtReader2 nbtReader,
             HeightLimitView world,
             PalettesFactory palettesFactory,
             Registry<Biome> biomeRegistry
@@ -559,7 +558,7 @@ public final class ChunkDataDeserializer {
         ChunkNibbleArray skyLight = null;
 
         while (true) {
-            byte tag = nbtReader.readByte();
+            byte tag = nbtReader.readType();
             if (tag == NbtElement.END_TYPE) {
                 ChunkSection chunkSection = null;
                 if (y >= world.getBottomSectionCoord() && y <= world.getTopSectionCoord()) {
@@ -628,7 +627,7 @@ public final class ChunkDataDeserializer {
      * {@link Blocks#AIR}{@code .getDefaultState()} as defaultValue
      */
     private static <T> PalettedContainer<T> readBlockStatesBiomes(
-            NbtReader nbtReader,
+            NbtReader2 nbtReader,
             PaletteProvider<T> provider,
             Function<Identifier, @Nullable T> lookup,
             T defaultValue
@@ -637,7 +636,7 @@ public final class ChunkDataDeserializer {
         long @Nullable [] storage = null;
 
         while (true) {
-            byte tag = nbtReader.readByte();
+            byte tag = nbtReader.readType();
             if (tag == NbtElement.END_TYPE) {
                 if (paletteEntries == null) {
                     throw new IllegalStateException("missing key palette");
@@ -649,11 +648,11 @@ public final class ChunkDataDeserializer {
                 if (tag != NbtElement.LIST_TYPE) {
                     throw new IllegalStateException("Pallet should be a list");
                 }
-                byte subTag = nbtReader.readByte();
+                byte subTag = nbtReader.readListType();
                 if (subTag != NbtElement.STRING_TYPE) {
                     throw new IllegalStateException("Pallet should be a string list");
                 }
-                int length = nbtReader.readInt();
+                int length = nbtReader.readListSize();
                 paletteEntries = new ArrayList<>();
                 for (int i = 0; i < length; i++) {
                     var entry = lookup.apply(nbtReader.readIdentifier());
@@ -681,7 +680,7 @@ public final class ChunkDataDeserializer {
      * {@link Blocks#AIR}{@code .getDefaultState()} as defaultValue
      */
     private static PalettedContainer<BlockState> readBlockStates(
-            NbtReader nbtReader,
+            NbtReader2 nbtReader,
             PaletteProvider<BlockState> provider,
             Codec<BlockState> codec,
             BlockState defaultValue
@@ -690,7 +689,7 @@ public final class ChunkDataDeserializer {
         long @Nullable [] storage = null;
 
         while (true) {
-            byte tag = nbtReader.readByte();
+            byte tag = nbtReader.readType();
             if (tag == NbtElement.END_TYPE) {
                 if (paletteEntries == null) {
                     throw new IllegalStateException("missing key palette");
@@ -702,16 +701,16 @@ public final class ChunkDataDeserializer {
                 if (tag != NbtElement.LIST_TYPE) {
                     throw new IllegalStateException("Pallet should be a list");
                 }
-                byte subTag = nbtReader.readByte();
+                byte subTag = nbtReader.readListType();
                 if (subTag != NbtElement.COMPOUND_TYPE) {
                     throw new IllegalStateException("Blockstate pallet should be a compound list");
                 }
-                int length = nbtReader.readInt();
+                int length = nbtReader.readListSize();
                 paletteEntries = new ArrayList<>();
                 for (int i = 0; i < length; i++) {
                     var comp = nbtReader.readCompound();
                     var entryResult = codec.decode(NbtOps.INSTANCE, comp);
-                    BlockState entry = entryResult.result().orElse(Pair.of(null,null)).getFirst();
+                    BlockState entry = entryResult.result().orElse(Pair.of(null, null)).getFirst();
                     if (entry == null) {
                         // So minecraft will log an error here once per pallet
                         entry = defaultValue;
