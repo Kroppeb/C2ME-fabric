@@ -164,7 +164,7 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
             NbtReader nbtReader
     ) {
         int i = nbtReader.findDataVersion();
-        return i == SharedConstants.getGameVersion().dataVersion().id();
+        return i != SharedConstants.getGameVersion().dataVersion().id();
     }
 
     /**
@@ -175,6 +175,7 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
     private CompletableFuture<Chunk> loadChunk(
             ChunkPos pos
     ) {
+        LOGGER.info("Using Kroppeb's amazing chunk loader");
         CompletableFuture< byte @Nullable[]> data = ((IDirectStorage) ((IVersionedChunkStorage) this).getWorker()).readRawChunkData(pos);
         CompletableFuture<Optional< @Nullable SerializedChunk>> completableFuture = data.thenApplyAsync(rawData -> {
             if (rawData == null) return Optional.empty();
@@ -182,6 +183,7 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
 
             SerializedChunk serializedChunk;
             if (this.needsNbtUpgrading(nbtReader)){
+                LOGGER.warn("FRICK; FALLBACK, FALLBACK");
                 // fallback to vanilla logic
                 NbtCompound nbtCompound = nbtReader.readCompound();
                 nbtCompound = this.updateChunkNbt(nbtCompound);

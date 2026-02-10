@@ -25,6 +25,7 @@ public class NbtReader {
     private byte[] buffer;
     private long pointer;
     private long limit;
+    private boolean inLooking = false;
     // Root keys used by vanilla chunk NBT (the ones your fromNbt(...) reads)
 // Root keys used by vanilla chunk NBT (the ones your fromNbt(...) reads)
 
@@ -540,8 +541,14 @@ public class NbtReader {
      */
     public void skipCompoundEntry() {
         byte tagType = UNSAFE.getByte(this.buffer, this.pointer - 1);
-        if (LOG_SKIPS){
-            LOGGER.info("Skipped entry: " + readString() + " => " + readElement(tagType));
+        if (LOG_SKIPS && !inLooking){
+            var key = readString();
+            var element = readElement(tagType);
+            var elementString = element.toString();
+            if (elementString.length() > 150){
+                elementString = elementString.substring(0, 150) + "...";
+            }
+            LOGGER.info("Skipped entry: \"" + key + "\" => " + elementString);
         } else {
             skipString();
             skipElement(tagType);
@@ -606,9 +613,9 @@ public class NbtReader {
 
 
 
-    public byte listType() {
+    public byte listType(byte tag) {
         // -1 if not a list
-        return switch (readByte()) {
+        return switch (tag) {
             case NbtElement.BYTE_TYPE,
                  NbtElement.SHORT_TYPE,
                  NbtElement.INT_TYPE,
@@ -625,17 +632,17 @@ public class NbtReader {
             case NbtElement.LIST_TYPE -> {
                 byte subType = readByte();
                 if(subType < 0 || subType > 12){
-                    throw new IllegalStateException("Unknown tag type");
+                    throw new IllegalStateException("Unknown tag type: " + subType);
                 }
                 yield subType;
             }
 
-            default -> throw new IllegalStateException("Unknown tag type");
+            default -> throw new IllegalStateException("Unknown tag type: "+ tag);
         };
     }
 
-    public long @Nullable [] readLongStream() {
-        byte listType = listType();
+    public long @Nullable [] readLongStream(byte tag) {
+        byte listType = listType(tag);
 
         if(listType == -1){
             return null;
@@ -718,13 +725,25 @@ public class NbtReader {
 
     public int findDataVersion() {
         assert this.pointer == BYTE_ARRAY_OFFSET; // Only allowed at the start
+        this.inLooking = true;
+        byte startTag = this.readByte();
+        if (startTag != NbtElement.COMPOUND_TYPE){
+            throw new IllegalStateException("Your data is corrupted, I think :whoops:");
+        }
+        this.readString();
+        long startPointer = this.pointer;
         while(true){
             byte tag = this.readByte();
             if (tag == NbtElement.END_TYPE) {
+                this.pointer = startPointer;
+                this.inLooking = false;
                 return -1;
             }
             if(this.matchesString(STRING_DATA_VERSION)){
-                return this.getInt(tag, -1);
+                int version = this.getInt(tag, -1);
+                this.pointer = startPointer;
+                this.inLooking = false;
+                return version;
             }else{
                 this.skipCompoundEntry();
             }

@@ -1,5 +1,6 @@
 package com.ishland.c2me.rewrites.chunk_serializer.common;
 
+import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
@@ -34,6 +35,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
 import java.util.stream.LongStream;
 
@@ -109,7 +111,6 @@ public final class ChunkDataDeserializer {
 
 
 
-
     /**
      * Mirror of {@link SerializedChunk#fromNbt(HeightLimitView, PalettesFactory, NbtCompound)}
      */
@@ -150,6 +151,7 @@ public final class ChunkDataDeserializer {
                     blockTicks = Tick.filter(blockTicks, chunkPos);
                     fluidTicks = Tick.filter(fluidTicks, chunkPos);
 
+                    LOGGER.info("WE LOADED A CHUNK!");
                     return new SerializedChunk(
                             palettesFactory,
                             chunkPos,
@@ -577,13 +579,10 @@ public final class ChunkDataDeserializer {
                 y = nbtReader.getByte(tag, (byte) 0);
             } else if (nbtReader.matchesString(STRING_BLOCK_STATES)) {
                 if (tag == NbtElement.COMPOUND_TYPE) {
-                    blockStates = readBlockStatesBiomes(
+                    blockStates = readBlockStates(
                             nbtReader,
                             palettesFactory.blockStatesStrategy(),
-                            (id) -> {
-                                var entry = Registries.BLOCK.getOptionalValue(id).orElse(null);
-                                return entry == null ? null : entry.getDefaultState();
-                            },
+                            BlockState.CODEC,
                             Blocks.AIR.getDefaultState()
                     );
                 } else {
@@ -665,7 +664,62 @@ public final class ChunkDataDeserializer {
                     paletteEntries.add(entry);
                 }
             } else if (nbtReader.matchesString(STRING_DATA)) {
-                storage = nbtReader.readLongStream();
+                storage = nbtReader.readLongStream(tag);
+            } else {
+                nbtReader.skipCompoundEntry();
+            }
+        }
+
+    }
+
+
+    /**
+     * Mirror of {@link PalettesFactory#blockStatesContainerCodec}
+     * created by {@link PalettedContainer#createPalettedContainerCodec(Codec, PaletteProvider, Object)}
+     * {@link BlockState#CODEC} as entryCodec,
+     * {@link PaletteProvider#forBlockStates}({@link Block.STATE_IDS}) as paletteProvider,
+     * {@link Blocks#AIR}{@code .getDefaultState()} as defaultValue
+     */
+    private static PalettedContainer<BlockState> readBlockStates(
+            NbtReader nbtReader,
+            PaletteProvider<BlockState> provider,
+            Codec<BlockState> codec,
+            BlockState defaultValue
+    ) {
+        @Nullable List<BlockState> paletteEntries = null;
+        long @Nullable [] storage = null;
+
+        while (true) {
+            byte tag = nbtReader.readByte();
+            if (tag == NbtElement.END_TYPE) {
+                if (paletteEntries == null) {
+                    throw new IllegalStateException("missing key palette");
+                }
+                return read(provider, paletteEntries, storage);
+            }
+
+            if (nbtReader.matchesString(STRING_PALETTE)) {
+                if (tag != NbtElement.LIST_TYPE) {
+                    throw new IllegalStateException("Pallet should be a list");
+                }
+                byte subTag = nbtReader.readByte();
+                if (subTag != NbtElement.COMPOUND_TYPE) {
+                    throw new IllegalStateException("Blockstate pallet should be a compound list");
+                }
+                int length = nbtReader.readInt();
+                paletteEntries = new ArrayList<>();
+                for (int i = 0; i < length; i++) {
+                    var comp = nbtReader.readCompound();
+                    var entryResult = codec.decode(NbtOps.INSTANCE, comp);
+                    BlockState entry = entryResult.result().orElse(Pair.of(null,null)).getFirst();
+                    if (entry == null) {
+                        // So minecraft will log an error here once per pallet
+                        entry = defaultValue;
+                    }
+                    paletteEntries.add(entry);
+                }
+            } else if (nbtReader.matchesString(STRING_DATA)) {
+                storage = nbtReader.readLongStream(tag);
             } else {
                 nbtReader.skipCompoundEntry();
             }
