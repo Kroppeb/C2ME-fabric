@@ -2,6 +2,7 @@ package com.ishland.c2me.rewrites.chunk_serializer.mixin;
 
 import com.ishland.c2me.base.common.scheduler.IVanillaChunkManager;
 import com.ishland.c2me.base.common.theinterface.IDirectStorage;
+import com.ishland.c2me.base.mixin.access.IThreadedAnvilChunkStorage;
 import com.ishland.c2me.base.mixin.access.IVersionedChunkStorage;
 import com.ishland.c2me.rewrites.chunk_serializer.common.*;
 import com.ishland.c2me.rewrites.chunk_serializer.common.utils.ValidationUtils;
@@ -157,12 +158,6 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
         }
     }
 
-    public boolean needsNbtUpgrading(
-            NbtReader2 nbtReader
-    ) {
-        int i = nbtReader.findDataVersion();
-        return i != SharedConstants.getGameVersion().dataVersion().id();
-    }
 
     /**
      * @author Kroppeb
@@ -172,35 +167,19 @@ public abstract class MixinThreadedAnvilChunkStorage extends VersionedChunkStora
     private CompletableFuture<Chunk> loadChunk(
             ChunkPos pos
     ) {
-        LOGGER.info("Using Kroppeb's amazing chunk loader");
-        CompletableFuture< byte @Nullable[]> data = ((IDirectStorage) ((IVersionedChunkStorage) this).getWorker()).readRawChunkData(pos);
-        CompletableFuture<Optional< @Nullable SerializedChunk>> completableFuture = data.thenApplyAsync(rawData -> {
-            if (rawData == null) return Optional.empty();
-            NbtReader2 nbtReader = new NbtReader2(rawData);
-
-            SerializedChunk serializedChunk;
-            if (this.needsNbtUpgrading(nbtReader)){
-                LOGGER.warn("FRICK; FALLBACK, FALLBACK");
-                // fallback to vanilla logic
-                NbtCompound nbtCompound = nbtReader.readCompound();
-                nbtCompound = this.updateChunkNbt(nbtCompound);
-                serializedChunk = SerializedChunk.fromNbt(this.world, this.world.getPalettesFactory(), nbtCompound);
-            }else {
-                // Fastpath, vroom vroom
-                serializedChunk = ChunkDataDeserializer.fromNbt(world, this.world.getPalettesFactory(), nbtReader);
-            }
-
-            if (serializedChunk == null) {
-                LOGGER.error("Chunk file at {} is missing level data, skipping", pos);
-            }
-
-            // So what is mojang doing here, this confuses me?
-            return Optional.of(serializedChunk);
-        }, Util.getMainWorkerExecutor().named("parseChunk"));
+//        LOGGER.info("Using Kroppeb's amazing chunk loader");
+        CompletableFuture<Optional<SerializedChunk>> serializedChunkCF = ((IDirectStorage) ((IVersionedChunkStorage) this).getWorker()).readRawChunkData(pos)
+                .thenApplyAsync(rawData -> Optional.ofNullable(
+                        ChunkDataDeserializer.convert(
+                                rawData,
+                                (IThreadedAnvilChunkStorage) this,
+                                pos
+                        )
+                ), Util.getMainWorkerExecutor().named("parseChunk"));
 
 
-        CompletableFuture<?> completableFuture2 = this.pointOfInterestStorage.load(pos);
-        return completableFuture.thenCombine(completableFuture2, (optional, object) -> optional).thenApplyAsync(serializedChunk -> {
+        CompletableFuture<?> poiCF = this.pointOfInterestStorage.load(pos);
+        return serializedChunkCF.thenCombine(poiCF, (optional, object) -> optional).thenApplyAsync(serializedChunk -> {
             Profilers.get().visit("chunkLoad");
             if (serializedChunk.isPresent()) {
                 Chunk chunk = serializedChunk.get().convert(this.world, this.pointOfInterestStorage, this.getStorageKey(), pos);

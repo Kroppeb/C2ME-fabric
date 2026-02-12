@@ -70,4 +70,6 @@ public interface IThreadedAnvilChunkStorage {
     @Accessor
     ServerChunkLoadingManager.LevelManager getLevelManager();
 
+    @Invoker
+    NbtCompound invokeUpdateChunkNbt(NbtCompound nbt);
 }

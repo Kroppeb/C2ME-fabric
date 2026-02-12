@@ -162,6 +162,29 @@ public class C2MEStorageThread extends Thread {
                 .thenApply(Function.identity());
     }
 
+
+    /**
+     * Read chunk data from storage
+     * @param pos target pos
+     * @return future
+     */
+    public CompletableFuture<byte @Nullable[]> getChunkDataRaw(long pos) {
+        final CompletableFuture<byte @Nullable[]> future = new CompletableFuture<>();
+        if (this.closing.get()) {
+            future.completeExceptionally(new CancellationException());
+            return future.thenApply(Function.identity());
+        }
+        this.executor.execute(() -> this.read0Raw(pos, future));
+//        future.thenApply(Function.identity()).orTimeout(60, TimeUnit.SECONDS).exceptionally(throwable -> {
+//            if (throwable instanceof TimeoutException) {
+//                LOGGER.warn("Chunk read at pos {} took too long (> 1min)", new ChunkPos(pos).toLong());
+//            }
+//            return null;
+//        });
+        return future
+                .thenApply(Function.identity());
+    }
+
     public CompletableFuture<Void> setChunkData(long pos, @Nullable NbtCompound nbt) {
         CompletableFuture<Void> future = new CompletableFuture<>();
         this.executor.execute(() -> {
@@ -306,6 +329,38 @@ public class C2MEStorageThread extends Thread {
         }
     }
 
+
+    private void read0Raw(long pos, CompletableFuture<byte @Nullable[]> future) {
+        if (this.cache.containsKey(pos)) {
+            final CompletionStage<Either<NbtCompound, byte @Nullable[]>> cachedFuture = this.cache.get(pos);
+            if (cachedFuture == null) {
+                future.complete(null);
+            } else {
+                cachedFuture.whenComplete((cached, throwable) -> { // mirror vanilla behavior: get the immediate result rather than latest
+                    if (throwable != null) {
+                        this.executor.execute(() -> {
+                            LOGGER.warn("Retrying read of chunk {} because previous write to chunk threw an exception", new ChunkPos(pos));
+                            this.read0Raw(pos, future);
+                        }); // retry
+                        return;
+                    }
+                    if (cached == null) {
+                        future.complete(null);
+                    } else if (cached.left().isPresent()) {
+                        // it's already nbt :|
+                        // TODO: this is not the best idea I think
+                        this.cache.remove(pos);
+                        this.read0Raw(pos, future);
+                    } else {
+                        future.complete(cached.right().get());
+                    }
+                });
+            }
+        } else {
+            scheduleChunkReadRaw(pos, future);
+        }
+    }
+
     private boolean writeBacklog() {
         if (!this.writeBacklog.isEmpty()) {
             final long pos = this.writeBacklog.firstLongKey();
@@ -332,6 +387,35 @@ public class C2MEStorageThread extends Thread {
                 handleTasks();
             }
             runWriteFutureGC();
+        }
+    }
+
+
+    private void scheduleChunkReadRaw(long pos, CompletableFuture<byte[]> future) {
+        try {
+            final ChunkPos pos1 = new ChunkPos(pos);
+            final RegionFile regionFile = ((IRegionBasedStorage) this.storage).invokeGetRegionFile(pos1);
+            final DataInputStream chunkInputStream = regionFile.getChunkInputStream(pos1);
+            if (chunkInputStream == null) {
+                future.complete(null);
+                return;
+            }
+            CompletableFuture.supplyAsync(() -> {
+                try {
+                    try (DataInputStream inputStream = chunkInputStream) {
+                        return inputStream.readAllBytes();
+                    }
+                } catch (Throwable t) {
+                    SneakyThrow.sneaky(t);
+                    return null; // Unreachable anyway
+                }
+            }, backgroundExecutorSupplier.apply(pos)).handle((compound, throwable) -> {
+                if (throwable != null) future.completeExceptionally(throwable);
+                else future.complete(compound);
+                return null;
+            });
+        } catch (Throwable t) {
+            future.completeExceptionally(t);
         }
     }
 

@@ -81,7 +81,7 @@ public class C2MEStorageVanillaInterface extends StorageIoWorker implements IDir
     }
 
     @Override
-    public CompletableFuture<byte @org.jspecify.annotations.Nullable []> readRawChunkData(ChunkPos pos) {
-        throw new NotImplementedException();
+    public CompletableFuture<byte @Nullable []> readRawChunkData(ChunkPos pos) {
+        return this.backend.getChunkDataRaw(pos.toLong());
     }
 }

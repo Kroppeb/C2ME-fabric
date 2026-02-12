@@ -26,8 +26,6 @@ public class NbtReader {
     private long pointer;
     private long limit;
     private boolean inLooking = false;
-    // Root keys used by vanilla chunk NBT (the ones your fromNbt(...) reads)
-// Root keys used by vanilla chunk NBT (the ones your fromNbt(...) reads)
 
     static private final byte[] STRING_DATA_VERSION = NbtWriter.getAsciiStringBytes("DataVersion");
 
@@ -41,17 +39,6 @@ public class NbtReader {
         this.limit = BYTE_ARRAY_OFFSET + data.length;
     }
 
-    public long getOffset() {
-        return this.pointer - BYTE_ARRAY_OFFSET;
-    }
-
-    public byte start() {
-        byte type = this.readByte();
-        if (type != NbtElement.END_TYPE) {
-            this.skipString();
-        }
-        return type;
-    }
 
     private void ensureAvailable(long length) {
         if (this.pointer + length > this.limit) {
@@ -64,7 +51,7 @@ public class NbtReader {
         this.pointer += length;
     }
 
-    public byte readByte() {
+    private byte readByte() {
         this.ensureAvailable(1);
         byte value = UNSAFE.getByte(this.buffer, this.pointer);
         this.pointer++;
@@ -105,7 +92,7 @@ public class NbtReader {
     }
 
     public void skipLong() {
-        skipBytes(4);
+        skipBytes(8);
     }
 
     public boolean readBoolean() {
@@ -344,6 +331,10 @@ public class NbtReader {
     public void skipString() {
         int length = this.readUnsignedShort();
         this.skipBytes(length);
+    }
+
+    public byte readType() {
+        return this.readByte();
     }
 
     public byte readListType() {
@@ -610,6 +601,26 @@ public class NbtReader {
             default -> throw new IllegalStateException("Unknown tag type");
         };
     }
+
+
+    public long getLong(byte tag, long fallback) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE -> readByte();
+            case NbtElement.SHORT_TYPE -> readShort();
+            case NbtElement.INT_TYPE -> readInt();
+            case NbtElement.LONG_TYPE -> readLong();
+            case NbtElement.FLOAT_TYPE -> (long) readFloat();// YES NO FLOORING, MOJANG IS INSANE
+            case NbtElement.DOUBLE_TYPE -> (long)Math.floor(readDouble());
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE -> fallback;
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
 
 
 

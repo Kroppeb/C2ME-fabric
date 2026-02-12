@@ -1,9 +1,11 @@
 package com.ishland.c2me.rewrites.chunk_serializer.common;
 
+import com.ishland.c2me.base.mixin.access.IThreadedAnvilChunkStorage;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
+import net.minecraft.SharedConstants;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -14,6 +16,7 @@ import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.entry.RegistryEntry;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.collection.EmptyPaletteStorage;
 import net.minecraft.util.collection.PackedIntegerArray;
@@ -109,6 +112,44 @@ public final class ChunkDataDeserializer {
     private static final byte[] STRING_HEIGHTMAP_TYPE_MOTION_BLOCKING = ((HeightMapTypeAccessor) (Object) Heightmap.Type.MOTION_BLOCKING).getNameBytes();
     private static final byte[] STRING_HEIGHTMAP_TYPE_MOTION_BLOCKING_NO_LEAVES = ((HeightMapTypeAccessor) (Object) Heightmap.Type.MOTION_BLOCKING_NO_LEAVES).getNameBytes();
 
+    static private boolean needsNbtUpgrading(
+            NbtReader2 nbtReader
+    ) {
+        int i = nbtReader.findDataVersion();
+        return i != SharedConstants.getGameVersion().dataVersion().id();
+    }
+
+    public static @Nullable SerializedChunk convert(
+            byte @Nullable[] rawData,
+            IThreadedAnvilChunkStorage tacs,
+            ChunkPos pos
+    ){
+        if (rawData == null) {
+            return null;
+        }
+        ServerWorld world = tacs.getWorld();
+
+        try (NbtReader2 nbtReader = new NbtReader2(rawData)) {
+            SerializedChunk serializedChunk;
+            if (needsNbtUpgrading(nbtReader)) {
+                LOGGER.warn("FRICK; FALLBACK, FALLBACK");
+                // fallback to vanilla logic
+                NbtCompound nbtCompound = nbtReader.readCompound();
+                nbtCompound = tacs.invokeUpdateChunkNbt(nbtCompound);
+                serializedChunk = SerializedChunk.fromNbt(world, world.getPalettesFactory(), nbtCompound);
+            } else {
+                // Fastpath, vroom vroom
+                serializedChunk = ChunkDataDeserializer.fromNbt(world, world.getPalettesFactory(), nbtReader);
+            }
+
+            if (serializedChunk == null) {
+                LOGGER.error("Chunk file at {} is missing level data, skipping", pos);
+            }
+
+            // So what is mojang doing here, this confuses me?
+            return serializedChunk;
+        }
+    }
 
     /**
      * Mirror of {@link SerializedChunk#fromNbt(HeightLimitView, PalettesFactory, NbtCompound)}
@@ -150,7 +191,7 @@ public final class ChunkDataDeserializer {
                     blockTicks = Tick.filter(blockTicks, chunkPos);
                     fluidTicks = Tick.filter(fluidTicks, chunkPos);
 
-                    LOGGER.info("WE LOADED A CHUNK!");
+//                    LOGGER.info("WE LOADED A CHUNK!");
                     return new SerializedChunk(
                             palettesFactory,
                             chunkPos,
@@ -315,107 +356,87 @@ public final class ChunkDataDeserializer {
     }
 
     private static BlendingData.Serialized readBlendingData(NbtReader2 nbtReader) {
+        // min_section: Codec.INT, required
+        // max_section: Codec.INT, required
+        // heights: Codec.DOUBLE.listOf(), lenient optional (extra validation)
+
         byte seenMask = 0;  // bit 0 = minSection, bit 1 = maxSection
         int minSection = 0, maxSection = 0;
-        Optional<double[]> heights = Optional.empty();
+        double @Nullable [] heights = null;
 
         while (true) {
-            switch (nbtReader.readType()) {
-                case NbtElement.END_TYPE -> {
-                    // compound end
-                    if (seenMask != 0b11) {
-                        if ((seenMask & 0b01) == 0) {
-                            throw new IllegalStateException("No key min_section");
-                        } else {
-                            throw new IllegalStateException("No key max_section");
-                        }
-
-                    }
-                    if (heights.isPresent() && heights.get().length != BlendingData.HORIZONTAL_BIOME_COUNT) {
-                        throw new IllegalStateException("heights has to be of length " + BlendingData.HORIZONTAL_BIOME_COUNT);
-                    }
-                    return new BlendingData.Serialized(minSection, maxSection, heights);
-                }
-                case NbtElement.INT_TYPE -> {
-                    if (nbtReader.matchesString(STRING_MIN_SECTION)) {
-                        minSection = nbtReader.getInt(NbtElement.INT_TYPE, 0);
-                        seenMask |= 0b01;
-                    } else if (nbtReader.matchesString(STRING_MAX_SECTION)) {
-                        maxSection = nbtReader.getInt(NbtElement.INT_TYPE, 0);
-                        seenMask |= 0b10;
-                    }
-                }
-                case NbtElement.LIST_TYPE -> {
-                    if (nbtReader.matchesString(STRING_HEIGHTS)) {
-                        byte subType = nbtReader.readListType();
-                        if (subType == NbtElement.DOUBLE_TYPE) {
-                            heights = Optional.of(nbtReader.readDoubleArray());
-                        } else {
-                            // skip,error
-                            nbtReader.skipList(subType);
-                        }
+            byte tag = nbtReader.readType();
+            if (tag == NbtElement.END_TYPE) {
+                // compound end
+                if (seenMask != 0b11) {
+                    if ((seenMask & 0b01) == 0) {
+                        throw new IllegalStateException("No key min_section");
                     } else {
-                        // skip,error
-                        nbtReader.skipCompoundEntry();
+                        throw new IllegalStateException("No key max_section");
                     }
+
                 }
-                default -> {
-                    // skip,error
-                    nbtReader.skipCompoundEntry();
+                if (heights != null && heights.length != BlendingData.HORIZONTAL_BIOME_COUNT) {
+                    throw new IllegalStateException("heights has to be of length " + BlendingData.HORIZONTAL_BIOME_COUNT);
                 }
+                return new BlendingData.Serialized(minSection, maxSection, Optional.ofNullable(heights));
+            }
+            if (nbtReader.matchesString(STRING_MIN_SECTION)) {
+                minSection = nbtReader.getIntOrThrow(tag);
+                seenMask |= 0b01;
+            } else if (nbtReader.matchesString(STRING_MAX_SECTION)) {
+                maxSection = nbtReader.getIntOrThrow(tag);
+                seenMask |= 0b10;
+            } else if (nbtReader.matchesString(STRING_HEIGHTS)) {
+                byte subType = nbtReader.listType(tag);
+                heights = nbtReader.getDoubleArray(subType);
+            } else {
+                // skip
+                nbtReader.skipCompoundEntry();
             }
         }
     }
 
     private static BelowZeroRetrogen readBelowZeroRetrogen(NbtReader2 nbtReader) {
-        ChunkStatus targetStatus = null;
+        // target_status: Registries.CHUNK_STATUS.codec(), required (extra validation)
+        // missing_bedrock: Codec.LONG_STREAM, lenient optional
+        @Nullable ChunkStatus targetStatus = null;
         Optional<BitSet> missingBedrock = Optional.empty();
 
         while (true) {
-            switch (nbtReader.readType()) {
-                case NbtElement.STRING_TYPE -> {
-                    if (nbtReader.matchesString(STRING_TARGET_STATUS)) {
-                        targetStatus = nbtReader.readRegistry(Registries.CHUNK_STATUS);
-                        if (targetStatus == ChunkStatus.EMPTY) {
-                            throw new IllegalStateException("target_status cannot be empty");
-                        }
-                    } else {
-                        // skip, error
-                        nbtReader.skipString();
-                    }
+            byte tag = nbtReader.readType();
+            if (tag == NbtElement.END_TYPE) {
+                if (targetStatus == null) {
+                    throw new IllegalStateException("No key chunk_status");
                 }
-                case NbtElement.LONG_ARRAY_TYPE -> {
-                    if (nbtReader.matchesString(STRING_MISSING_BEDROCK)) {
-                        missingBedrock = Optional.of(BitSet.valueOf(nbtReader.readLongArray()));
-                    } else {
-                        // skip, error
-                        nbtReader.skipLongArray();
-                    }
+                return new BelowZeroRetrogen(targetStatus, missingBedrock);
+            }
+
+            if (nbtReader.matchesString(STRING_TARGET_STATUS)) {
+                if (tag != NbtElement.STRING_TYPE) {
+                    throw new IllegalStateException("Not a string");
                 }
-                case NbtElement.LIST_TYPE -> {
-                    if (nbtReader.matchesString(STRING_MISSING_BEDROCK)) {
-                        byte subType = nbtReader.readListType();
-                        if (subType == NbtEnd.LONG_TYPE) {
-                            missingBedrock = Optional.of(BitSet.valueOf(nbtReader.readLongArray()));
-                        } else {
-                            // skip, error
-                            // this one is lenient so error => null
-                            nbtReader.skipList(subType);
-                        }
-                    } else {
-                        // skip, error
-                        nbtReader.skipList();
-                    }
+                targetStatus = nbtReader.readRegistry(Registries.CHUNK_STATUS);
+                if (targetStatus == ChunkStatus.EMPTY) {
+                    throw new IllegalStateException("target_status cannot be EMPTY");
                 }
-                case NbtElement.END_TYPE -> {
-                    if (targetStatus == null) {
-                        throw new IllegalStateException("No key chunk_status");
-                    }
-                    return new BelowZeroRetrogen(targetStatus, missingBedrock);
+            } else if (nbtReader.matchesString(STRING_MISSING_BEDROCK)) {
+                byte listType = nbtReader.listType(tag);
+                long[] longs = nbtReader.getLongArray(listType);
+                if (longs != null){
+                    missingBedrock = Optional.of(BitSet.valueOf(longs));
                 }
-                default -> {
-                    nbtReader.skipCompoundEntry();
+            } else if (nbtReader.matchesString(STRING_MISSING_BEDROCK)) {
+                byte subType = nbtReader.readListType();
+                if (subType == NbtEnd.LONG_TYPE) {
+                    missingBedrock = Optional.of(BitSet.valueOf(nbtReader.readLongArray()));
+                } else {
+                    // skip, error
+                    // this one is lenient so error => null
+                    nbtReader.skipList(subType);
                 }
+            } else {
+                nbtReader.skipCompoundEntry();
             }
         }
     }

@@ -2,6 +2,7 @@ package com.ishland.c2me.rewrites.chunk_serializer.common;
 
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import net.minecraft.nbt.*;
+import net.minecraft.registry.DefaultedRegistry;
 import net.minecraft.registry.Registry;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
@@ -17,7 +18,10 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 
-public class NbtReader2 {
+import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.toDoubles;
+import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.toLongs;
+
+public class NbtReader2 implements AutoCloseable {
 
     // Use UNALIGNED layouts because reads happen at arbitrary byte offsets.
     private static final ValueLayout.OfByte B = ValueLayout.JAVA_BYTE;
@@ -27,19 +31,22 @@ public class NbtReader2 {
     private static final ValueLayout.OfFloat F_BE = ValueLayout.JAVA_FLOAT_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN);
     private static final ValueLayout.OfDouble D_BE = ValueLayout.JAVA_DOUBLE_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN);
 
-    private static final boolean LOG_SKIPS = true;
+    private static final boolean LOG_SKIPS = false;
     private static final Logger LOGGER = LogManager.getLogger("C2ME-serializer");
 
     // Root keys used by vanilla chunk NBT (the ones your fromNbt(...) reads)
     private static final byte[] STRING_DATA_VERSION = NbtWriter.getAsciiStringBytes("DataVersion");
 
-
-    private MemorySegment segment; // wraps the provided byte[] (zero-copy)
+    private final Arena arena;
+    private final MemorySegment segment; // wraps the provided byte[] (zero-copy)
     private long pointer;
     private boolean inLooking = false;
 
+
     public NbtReader2(byte @NotNull [] data) {
-        segment = Arena.ofAuto().allocate(data.length, 1);
+        //segment = MemorySegment.ofArray(data);
+        arena = Arena.ofConfined();
+        segment = arena.allocate(data.length, 1);
         //is an auto arena as good as a deterministic management?
         MemorySegment.copy(MemorySegment.ofArray(data), 0, this.segment, 0, data.length);
         this.pointer = 0L;
@@ -87,7 +94,7 @@ public class NbtReader2 {
 
     // Kept drop-in equivalent to your existing implementation (even though it looks like it should be 8).
     private void skipLong() {
-        skipBytes(4);
+        skipBytes(8);
     }
 
     private float readFloat() {
@@ -133,7 +140,9 @@ public class NbtReader2 {
     public short[] readShorts(int length) {
         if (length < 0) throw new IllegalArgumentException("Negative short array length: " + length);
         if (length == 0) return new short[0];
-        return this.segment.asSlice(this.pointer, length * 2L).toArray(S_BE);
+        short[] res = this.segment.asSlice(this.pointer, length * 2L).toArray(S_BE);
+        this.pointer += length * 2L;
+        return res;
     }
 
     public short[] readShortArray() {
@@ -144,14 +153,15 @@ public class NbtReader2 {
         int length = this.readInt();
         if (length < 0) throw new IllegalArgumentException("Negative short array length: " + length);
 
-        // Kept drop-in equivalent to your existing implementation.
         skipBytes(length * 2L);
     }
 
     public int[] readInts(int length) {
         if (length < 0) throw new IllegalArgumentException("Negative int array length: " + length);
         if (length == 0) return new int[0];
-        return this.segment.asSlice(this.pointer, length * 4L).toArray(I_BE);
+        int[] res = this.segment.asSlice(this.pointer, length * 4L).toArray(I_BE);
+        this.pointer += length * 4L;
+        return res;
     }
 
     public int[] readIntArray() {
@@ -167,7 +177,9 @@ public class NbtReader2 {
     public long[] readLongs(int length) {
         if (length < 0) throw new IllegalArgumentException("Negative long array length: " + length);
         if (length == 0) return new long[0];
-        return this.segment.asSlice(this.pointer, length * 8L).toArray(L_BE);
+        long[] res = this.segment.asSlice(this.pointer, length * 8L).toArray(L_BE);
+        this.pointer += length * 8L;
+        return res;
     }
 
     public long[] readLongArray() {
@@ -183,7 +195,9 @@ public class NbtReader2 {
     public float[] readFloats(int length) {
         if (length < 0) throw new IllegalArgumentException("Negative float array length: " + length);
         if (length == 0) return new float[0];
-        return this.segment.asSlice(this.pointer, length * 4L).toArray(F_BE);
+        float[] res = this.segment.asSlice(this.pointer, length * 4L).toArray(F_BE);
+        this.pointer += length * 4L;
+        return res;
     }
 
     public float[] readFloatArray() {
@@ -199,7 +213,9 @@ public class NbtReader2 {
     public double[] readDoubles(int length) {
         if (length < 0) throw new IllegalArgumentException("Negative double array length: " + length);
         if (length == 0) return new double[0];
-        return this.segment.asSlice(this.pointer, length *8L).toArray(D_BE);
+        double[] res = this.segment.asSlice(this.pointer, length * 8L).toArray(D_BE);
+        this.pointer += length * 8L;
+        return res;
     }
 
     public double[] readDoubleArray() {
@@ -293,7 +309,6 @@ public class NbtReader2 {
     }
 
     public boolean matchesString(byte[] key) {
-        // Kept semantics: no pre-check besides whatever the subsequent skipBytes() does.
         long start = this.pointer;
         for (int i = 0; i < key.length; i++) {
             if (this.segment.get(B, start + i) != key[i]) return false;
@@ -302,8 +317,22 @@ public class NbtReader2 {
         return true;
     }
 
-    public <T> T readRegistry(Registry<T> registry) {
-        return registry.get(readIdentifier());
+    public <T> @Nullable T readRegistry(Registry<T> registry) {
+        Identifier id = readIdentifier();
+
+        if (registry instanceof DefaultedRegistry<T>){
+            // Bypass the default :[
+            var val =registry.getEntry(id);
+            //noinspection OptionalIsPresent
+            if (val.isPresent()){
+                return val.get().value();
+            } else {
+                return null;
+            }
+        } else{
+            return registry.get(id);
+        }
+
     }
 
     public Identifier readIdentifier() {
@@ -441,8 +470,8 @@ public class NbtReader2 {
             case NbtElement.SHORT_TYPE -> (byte) readShort();
             case NbtElement.INT_TYPE -> (byte) readInt();
             case NbtElement.LONG_TYPE -> (byte) readLong();
-            case NbtElement.FLOAT_TYPE -> (byte) MathHelper.floor(readFloat());
-            case NbtElement.DOUBLE_TYPE -> (byte) MathHelper.floor(readDouble());
+            case NbtElement.FLOAT_TYPE -> (byte) MathHelper.floor(readFloat()); // Mojang does not follow java spec
+            case NbtElement.DOUBLE_TYPE -> (byte) MathHelper.floor(readDouble()); // Mojang does not follow java spec
             case NbtElement.BYTE_ARRAY_TYPE,
                  NbtElement.STRING_TYPE,
                  NbtElement.LIST_TYPE,
@@ -459,8 +488,8 @@ public class NbtReader2 {
             case NbtElement.SHORT_TYPE -> readShort();
             case NbtElement.INT_TYPE -> (short) readInt();
             case NbtElement.LONG_TYPE -> (short) readLong();
-            case NbtElement.FLOAT_TYPE -> (short) MathHelper.floor(readFloat());
-            case NbtElement.DOUBLE_TYPE -> (short) MathHelper.floor(readDouble());
+            case NbtElement.FLOAT_TYPE -> (short) MathHelper.floor(readFloat());// Mojang does not follow java spec
+            case NbtElement.DOUBLE_TYPE -> (short) MathHelper.floor(readDouble());// Mojang does not follow java spec
             case NbtElement.BYTE_ARRAY_TYPE,
                  NbtElement.STRING_TYPE,
                  NbtElement.LIST_TYPE,
@@ -477,8 +506,8 @@ public class NbtReader2 {
             case NbtElement.SHORT_TYPE -> readShort();
             case NbtElement.INT_TYPE -> readInt();
             case NbtElement.LONG_TYPE -> (int) readLong();
-            case NbtElement.FLOAT_TYPE -> MathHelper.floor(readFloat());
-            case NbtElement.DOUBLE_TYPE -> MathHelper.floor(readDouble());
+            case NbtElement.FLOAT_TYPE -> MathHelper.floor(readFloat());// Mojang does not follow java spec
+            case NbtElement.DOUBLE_TYPE -> MathHelper.floor(readDouble());// Mojang does not follow java spec
             case NbtElement.BYTE_ARRAY_TYPE,
                  NbtElement.STRING_TYPE,
                  NbtElement.LIST_TYPE,
@@ -496,7 +525,7 @@ public class NbtReader2 {
             case NbtElement.INT_TYPE -> readInt();
             case NbtElement.LONG_TYPE -> readLong();
             case NbtElement.FLOAT_TYPE -> (long) readFloat();// YES NO FLOORING, MOJANG IS INSANE
-            case NbtElement.DOUBLE_TYPE -> (long)Math.floor(readDouble());
+            case NbtElement.DOUBLE_TYPE -> (long) Math.floor(readDouble());// Mojang does not follow java spec
             case NbtElement.BYTE_ARRAY_TYPE,
                  NbtElement.STRING_TYPE,
                  NbtElement.LIST_TYPE,
@@ -506,6 +535,203 @@ public class NbtReader2 {
             default -> throw new IllegalStateException("Unknown tag type");
         };
     }
+
+
+    public float getFloat(byte tag, float fallback) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE -> readByte();
+            case NbtElement.SHORT_TYPE -> readShort();
+            case NbtElement.INT_TYPE -> readInt();
+            case NbtElement.LONG_TYPE -> (float) readLong();
+            case NbtElement.FLOAT_TYPE -> readFloat();
+            case NbtElement.DOUBLE_TYPE -> (float)readDouble();
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE -> fallback;
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
+    public double getDouble(byte tag, double fallback) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE -> readByte();
+            case NbtElement.SHORT_TYPE -> readShort();
+            case NbtElement.INT_TYPE -> readInt();
+            case NbtElement.LONG_TYPE -> readLong();
+            case NbtElement.FLOAT_TYPE -> readFloat();
+            case NbtElement.DOUBLE_TYPE -> readDouble();
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE -> fallback;
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
+
+    public byte getByteOrThrow(byte tag) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE -> readByte();
+            case NbtElement.SHORT_TYPE -> (byte) readShort();
+            case NbtElement.INT_TYPE -> (byte) readInt();
+            case NbtElement.LONG_TYPE -> (byte) readLong();
+            case NbtElement.FLOAT_TYPE -> (byte) MathHelper.floor(readFloat());
+            case NbtElement.DOUBLE_TYPE -> (byte) MathHelper.floor(readDouble());
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE -> throw new IllegalStateException("Not a number");
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
+    public short getShortOrThrow(byte tag) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE -> readByte();
+            case NbtElement.SHORT_TYPE -> readShort();
+            case NbtElement.INT_TYPE -> (short) readInt();
+            case NbtElement.LONG_TYPE -> (short) readLong();
+            case NbtElement.FLOAT_TYPE -> (short) MathHelper.floor(readFloat());
+            case NbtElement.DOUBLE_TYPE -> (short) MathHelper.floor(readDouble());
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE -> throw new IllegalStateException("Not a number");
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
+    public int getIntOrThrow(byte tag) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE -> readByte();
+            case NbtElement.SHORT_TYPE -> readShort();
+            case NbtElement.INT_TYPE -> readInt();
+            case NbtElement.LONG_TYPE -> (int) readLong();
+            case NbtElement.FLOAT_TYPE -> MathHelper.floor(readFloat());
+            case NbtElement.DOUBLE_TYPE -> MathHelper.floor(readDouble());
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE -> throw new IllegalStateException("Not a number");
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
+    public long getLongOrThrow(byte tag) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE -> readByte();
+            case NbtElement.SHORT_TYPE -> readShort();
+            case NbtElement.INT_TYPE -> readInt();
+            case NbtElement.LONG_TYPE -> readLong();
+            case NbtElement.FLOAT_TYPE -> (long) readFloat();// YES NO FLOORING, MOJANG IS INSANE
+            case NbtElement.DOUBLE_TYPE -> (long) Math.floor(readDouble());
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE -> throw new IllegalStateException("Not a number");
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
+    public float getFloatOrThrow(byte tag) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE -> readByte();
+            case NbtElement.SHORT_TYPE -> readShort();
+            case NbtElement.INT_TYPE -> readInt();
+            case NbtElement.LONG_TYPE -> (float) readLong();
+            case NbtElement.FLOAT_TYPE -> readFloat();
+            case NbtElement.DOUBLE_TYPE -> (float)readDouble();
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE -> throw new IllegalStateException("Not a number");
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
+    public double getDoubleOrThrow(byte tag) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE -> readByte();
+            case NbtElement.SHORT_TYPE -> readShort();
+            case NbtElement.INT_TYPE -> readInt();
+            case NbtElement.LONG_TYPE -> readLong();
+            case NbtElement.FLOAT_TYPE -> readFloat();
+            case NbtElement.DOUBLE_TYPE -> readDouble();
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE -> throw new IllegalStateException("Not a number");
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
+    public long @Nullable[] getLongArray(byte tag) {
+        return switch (tag) {
+            case NbtElement.END_TYPE -> {
+                if (readListSize() == 0) {
+                    yield new long[0];
+                }
+                throw new IllegalStateException("Encountered an illegal list");
+            }
+            case NbtElement.BYTE_TYPE -> toLongs(readByteArray());
+            case NbtElement.SHORT_TYPE -> toLongs(readShortArray());
+            case NbtElement.INT_TYPE -> toLongs(readIntArray());
+            case NbtElement.LONG_TYPE -> readLongArray();
+            case NbtElement.FLOAT_TYPE -> toLongs(readFloatArray());
+            case NbtElement.DOUBLE_TYPE -> toLongs(readDoubleArray());
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE, -1
+                    -> null;
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
+    public double @Nullable[] getDoubleArray(byte tag) {
+        return switch (tag) {
+            case NbtElement.END_TYPE -> {
+                if (readListSize() == 0) {
+                    yield new double[0];
+                }
+                throw new IllegalStateException("Encountered an illegal list");
+            }
+            case NbtElement.BYTE_TYPE -> toDoubles(readByteArray());
+            case NbtElement.SHORT_TYPE -> toDoubles(readShortArray());
+            case NbtElement.INT_TYPE -> toDoubles(readIntArray());
+            case NbtElement.LONG_TYPE -> toDoubles(readLongArray());
+            case NbtElement.FLOAT_TYPE -> toDoubles(readFloatArray());
+            case NbtElement.DOUBLE_TYPE -> readDoubleArray();
+            case NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.STRING_TYPE,
+                 NbtElement.LIST_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE,
+                 -1 -> null;
+            default -> throw new IllegalStateException("Unknown tag type");
+        };
+    }
+
 
     public byte listType(byte tag) {
         // -1 if not a list
@@ -619,5 +845,30 @@ public class NbtReader2 {
                 this.skipCompoundEntry();
             }
         }
+    }
+
+    @Override
+    public void close() {
+        this.arena.close();
+    }
+
+    static public boolean isNumeric(byte tag) {
+        return switch (tag) {
+            case NbtElement.BYTE_TYPE,
+                 NbtElement.SHORT_TYPE,
+                 NbtElement.INT_TYPE,
+                 NbtElement.LONG_TYPE,
+                 NbtElement.FLOAT_TYPE,
+                 NbtElement.DOUBLE_TYPE -> true;
+
+            case NbtElement.STRING_TYPE,
+                 NbtElement.COMPOUND_TYPE,
+                 NbtElement.BYTE_ARRAY_TYPE,
+                 NbtElement.INT_ARRAY_TYPE,
+                 NbtElement.LONG_ARRAY_TYPE,
+                 NbtElement.LIST_TYPE -> false;
+
+            default -> throw new IllegalStateException("Unknown tag type: " + tag);
+        };
     }
 }

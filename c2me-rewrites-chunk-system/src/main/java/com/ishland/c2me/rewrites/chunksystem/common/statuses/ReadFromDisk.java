@@ -11,6 +11,7 @@ import com.ishland.c2me.base.mixin.access.IServerLightingProvider;
 import com.ishland.c2me.base.mixin.access.IThreadedAnvilChunkStorage;
 import com.ishland.c2me.base.mixin.access.IVersionedChunkStorage;
 import com.ishland.c2me.base.mixin.access.IWorldChunk;
+import com.ishland.c2me.rewrites.chunk_serializer.common.ChunkDataDeserializer;
 import com.ishland.c2me.rewrites.chunksystem.common.ChunkLoadingContext;
 import com.ishland.c2me.rewrites.chunksystem.common.ChunkState;
 import com.ishland.c2me.rewrites.chunksystem.common.Config;
@@ -127,7 +128,16 @@ public class ReadFromDisk extends NewChunkStatus {
         }
     }
 
+
     protected @NotNull Single<Optional<SerializedChunk>> invokeInitialChunkRead(ChunkLoadingContext context) {
+        if (false){
+            return invokeInitialChunkReadVanilla(context);
+        } else {
+            return invokeInitialChunkReadRaw(context);
+        }
+    }
+
+    protected @NotNull Single<Optional<SerializedChunk>> invokeInitialChunkReadVanilla(ChunkLoadingContext context) {
         return Single.defer(() -> Single.fromCompletionStage(((IThreadedAnvilChunkStorage) context.tacs()).invokeGetUpdatedChunkNbt(context.holder().getKey())))
                 .map(optional -> optional.map(nbtCompound -> {
                     try (var ignored = ThreadInstrumentation.getCurrent().begin(new ChunkTaskWork(context, this, true))) {
@@ -140,6 +150,20 @@ public class ReadFromDisk extends NewChunkStatus {
                         return chunkSerializer;
                     }
                 }))
+                .zipWith(
+                        Completable.defer(() -> Completable.fromCompletionStage(((IThreadedAnvilChunkStorage) context.tacs()).getPointOfInterestStorage().load(context.holder().getKey()))).toSingleDefault(ReadFromDisk.class),
+                        (chunkSerializer, o) -> chunkSerializer
+                );
+    }
+
+    protected @NotNull Single<Optional<SerializedChunk>> invokeInitialChunkReadRaw(ChunkLoadingContext context) {
+        return Single.defer(() -> Single.fromCompletionStage(((IDirectStorage) context.tacs().getWorker()).readRawChunkData(context.holder().getKey()).thenApply(Optional::ofNullable)))
+                .map(opt -> opt.map(rawData-> {
+                            try (var ignored = ThreadInstrumentation.getCurrent().begin(new ChunkTaskWork(context, this, true))) {
+                                return ChunkDataDeserializer.convert(rawData, (IThreadedAnvilChunkStorage) context.tacs(), context.holder().getKey());
+                            }
+                        })
+                )
                 .zipWith(
                         Completable.defer(() -> Completable.fromCompletionStage(((IThreadedAnvilChunkStorage) context.tacs()).getPointOfInterestStorage().load(context.holder().getKey()))).toSingleDefault(ReadFromDisk.class),
                         (chunkSerializer, o) -> chunkSerializer
