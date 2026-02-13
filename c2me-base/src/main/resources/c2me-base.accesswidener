@@ -93,7 +93,7 @@ accessible    field     net/minecraft/util/math/noise/SimplexNoiseSampler       
 accessible    field     net/minecraft/world/gen/chunk/AquiferSampler$FluidLevel             y                   I
 accessible    field     net/minecraft/world/gen/chunk/AquiferSampler$FluidLevel             state               Lnet/minecraft/block/BlockState;
 accessible    field    net/minecraft/world/gen/chunk/BlendingData                           HORIZONTAL_BIOME_COUNT I
-
+accessible    field    net/minecraft/state/State                                            codec               Lcom/mojang/serialization/MapCodec;
 
 accessible method net/minecraft/world/chunk/PaletteProvider createTypeFromSize (I)Lnet/minecraft/world/chunk/PaletteType;
 accessible method net/minecraft/world/chunk/PalettedContainer repack (Lnet/minecraft/util/collection/PaletteStorage;Lnet/minecraft/world/chunk/Palette;Lnet/minecraft/world/chunk/Palette;)[I

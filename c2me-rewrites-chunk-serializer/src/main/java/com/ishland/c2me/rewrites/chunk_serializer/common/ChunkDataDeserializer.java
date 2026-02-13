@@ -19,6 +19,7 @@ import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.collection.EmptyPaletteStorage;
+import net.minecraft.util.collection.IndexedIterable;
 import net.minecraft.util.collection.PackedIntegerArray;
 import net.minecraft.util.collection.PaletteStorage;
 import net.minecraft.util.math.BlockPos;
@@ -38,7 +39,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
-import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
 import java.util.stream.LongStream;
 
@@ -120,10 +120,10 @@ public final class ChunkDataDeserializer {
     }
 
     public static @Nullable SerializedChunk convert(
-            byte @Nullable[] rawData,
+            byte @Nullable [] rawData,
             IThreadedAnvilChunkStorage tacs,
             ChunkPos pos
-    ){
+    ) {
         if (rawData == null) {
             return null;
         }
@@ -423,7 +423,7 @@ public final class ChunkDataDeserializer {
             } else if (nbtReader.matchesString(STRING_MISSING_BEDROCK)) {
                 byte listType = nbtReader.listType(tag);
                 long[] longs = nbtReader.getLongArray(listType);
-                if (longs != null){
+                if (longs != null) {
                     missingBedrock = Optional.of(BitSet.valueOf(longs));
                 }
             } else if (nbtReader.matchesString(STRING_MISSING_BEDROCK)) {
@@ -602,7 +602,6 @@ public final class ChunkDataDeserializer {
                     blockStates = readBlockStates(
                             nbtReader,
                             palettesFactory.blockStatesStrategy(),
-                            BlockState.CODEC,
                             Blocks.AIR.getDefaultState()
                     );
                 } else {
@@ -611,12 +610,10 @@ public final class ChunkDataDeserializer {
             } else if (nbtReader.matchesString(STRING_BIOMES)) {
                 if (tag == NbtElement.COMPOUND_TYPE) {
                     RegistryEntry.Reference<Biome> reference = biomeRegistry.getOrThrow(BiomeKeys.PLAINS);
-                    biomes = readBlockStatesBiomes(
+                    biomes = readBiomes(
                             nbtReader,
                             palettesFactory.biomeStrategy(),
-                            (id) -> {
-                                return biomeRegistry.getOptional(RegistryKey.of(biomeRegistry.getKey(), id)).orElse(null);
-                            },
+                            (id) -> biomeRegistry.getOptional(RegistryKey.of(biomeRegistry.getKey(), id)).orElse(null),
                             reference
                     );
                 } else {
@@ -641,13 +638,13 @@ public final class ChunkDataDeserializer {
     }
 
     /**
-     * Mirror of {@link PalettesFactory#blockStatesContainerCodec}
-     * created by {@link PalettedContainer#createPalettedContainerCodec(Codec, PaletteProvider, Object)}
-     * {@link BlockState#CODEC} as entryCodec,
-     * {@link PaletteProvider#forBlockStates}({@link Block.STATE_IDS}) as paletteProvider,
-     * {@link Blocks#AIR}{@code .getDefaultState()} as defaultValue
+     * Mirror of {@link PalettesFactory#biomeContainerCodec}
+     * created by {@link PalettedContainer#createReadableContainerCodec(Codec, PaletteProvider, Object)}
+     * BiomeRegistry codec as entryCodec,
+     * {@link PaletteProvider#forBiomes} as paletteProvider,
+     * {@link BiomeKeys.PLAINS} as defaultValue
      */
-    private static <T> PalettedContainer<T> readBlockStatesBiomes(
+    private static <T> PalettedContainer<T> readBiomes(
             NbtReader2 nbtReader,
             PaletteProvider<T> provider,
             Function<Identifier, @Nullable T> lookup,
@@ -666,12 +663,9 @@ public final class ChunkDataDeserializer {
             }
 
             if (nbtReader.matchesString(STRING_PALETTE)) {
-                if (tag != NbtElement.LIST_TYPE) {
-                    throw new IllegalStateException("Pallet should be a list");
-                }
-                byte subTag = nbtReader.readListType();
-                if (subTag != NbtElement.STRING_TYPE) {
-                    throw new IllegalStateException("Pallet should be a string list");
+                byte listType = nbtReader.listType(tag);
+                if (listType != NbtElement.STRING_TYPE) {
+                    throw new IllegalStateException("Biomes pallet should be a string list");
                 }
                 int length = nbtReader.readListSize();
                 paletteEntries = new ArrayList<>();
@@ -703,7 +697,6 @@ public final class ChunkDataDeserializer {
     private static PalettedContainer<BlockState> readBlockStates(
             NbtReader2 nbtReader,
             PaletteProvider<BlockState> provider,
-            Codec<BlockState> codec,
             BlockState defaultValue
     ) {
         @Nullable List<BlockState> paletteEntries = null;
@@ -719,23 +712,14 @@ public final class ChunkDataDeserializer {
             }
 
             if (nbtReader.matchesString(STRING_PALETTE)) {
-                if (tag != NbtElement.LIST_TYPE) {
-                    throw new IllegalStateException("Pallet should be a list");
-                }
-                byte subTag = nbtReader.readListType();
-                if (subTag != NbtElement.COMPOUND_TYPE) {
+                byte listType = nbtReader.listType(tag);
+                if (listType != NbtElement.COMPOUND_TYPE) {
                     throw new IllegalStateException("Blockstate pallet should be a compound list");
                 }
                 int length = nbtReader.readListSize();
                 paletteEntries = new ArrayList<>();
                 for (int i = 0; i < length; i++) {
-                    var comp = nbtReader.readCompound();
-                    var entryResult = codec.decode(NbtOps.INSTANCE, comp);
-                    BlockState entry = entryResult.result().orElse(Pair.of(null, null)).getFirst();
-                    if (entry == null) {
-                        // So minecraft will log an error here once per pallet
-                        entry = defaultValue;
-                    }
+                    BlockState entry = readBlockState(nbtReader, defaultValue);
                     paletteEntries.add(entry);
                 }
             } else if (nbtReader.matchesString(STRING_DATA)) {
@@ -745,6 +729,60 @@ public final class ChunkDataDeserializer {
             }
         }
 
+    }
+
+    private static BlockState readBlockState(NbtReader2 nbtReader, BlockState defaultValue) {
+        BlockState state = null;
+        NbtCompound properties = null;
+
+        while (true) {
+            byte tag = nbtReader.readType();
+            if (tag == NbtElement.END_TYPE) {
+                if(state == null) {
+                    // Invalid blockstate compound
+                    return defaultValue;
+                }
+                if (properties == null){
+                    // No props, just return the state (lenient optional)
+                    return state;
+                }
+                var res = state.codec.codec().decode(NbtOps.INSTANCE, properties).resultOrPartial();
+                if (res.isEmpty()){
+                    return defaultValue;
+                } else {
+                    return res.get().getFirst();
+                }
+            }
+            if (nbtReader.matchesString(STRING_NAME)) {
+                if (tag != NbtElement.STRING_TYPE) {
+                    // Invalid block id, skip rest of compound
+                    nbtReader.skipElement(tag);
+                    nbtReader.skipCompound();
+                    return defaultValue;
+                }
+                Block block = nbtReader.readRegistry(Registries.BLOCK);
+                if (block == null) {
+                    // Unknown block id, skip rest of compound
+                    nbtReader.skipCompound(); // skips rest of the compound
+                    return defaultValue;
+                }
+                state = block.getDefaultState();
+                if (state.getEntries().isEmpty()){
+                    // no reason to parse the rest (unit codec)
+                    nbtReader.skipCompound(); // skips rest of the compound
+                    return state;
+                }
+            } else if (nbtReader.matchesString(STRING_PROPERTIES)) {
+                if (tag != NbtElement.COMPOUND_TYPE) {
+                    // bad props, but lenient optional so just skip
+                    nbtReader.skipElement(tag);
+                } else {
+                    properties = nbtReader.readCompound();
+                }
+            } else {
+                nbtReader.skipCompoundEntry();
+            }
+        }
     }
 
     /**
