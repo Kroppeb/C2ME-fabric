@@ -16,6 +16,8 @@ import java.util.List;
 import org.jetbrains.annotations.Nullable;
 import sun.misc.Unsafe;
 
+import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.getAsciiStringBytes;
+
 public class NbtReader {
     private static final Unsafe UNSAFE = UnsafeUtils.UNSAFE;
     private static final int BYTE_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
@@ -27,7 +29,7 @@ public class NbtReader {
     private long limit;
     private boolean inLooking = false;
 
-    static private final byte[] STRING_DATA_VERSION = NbtWriter.getAsciiStringBytes("DataVersion");
+    static private final byte[] STRING_DATA_VERSION = getAsciiStringBytes("DataVersion");
 
     public NbtReader(byte @NotNull[] data) {
         this.reset(data);

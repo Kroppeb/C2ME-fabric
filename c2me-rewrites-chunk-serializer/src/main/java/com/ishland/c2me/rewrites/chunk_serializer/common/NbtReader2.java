@@ -1,5 +1,6 @@
 package com.ishland.c2me.rewrites.chunk_serializer.common;
 
+import com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import net.minecraft.nbt.*;
 import net.minecraft.registry.DefaultedRegistry;
@@ -18,8 +19,8 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.toDoubles;
-import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.toLongs;
+import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.*;
+
 
 public class NbtReader2 implements AutoCloseable {
 
@@ -35,7 +36,7 @@ public class NbtReader2 implements AutoCloseable {
     private static final Logger LOGGER = LogManager.getLogger("C2ME-serializer");
 
     // Root keys used by vanilla chunk NBT (the ones your fromNbt(...) reads)
-    private static final byte[] STRING_DATA_VERSION = NbtWriter.getAsciiStringBytes("DataVersion");
+    private static final byte[] STRING_DATA_VERSION = NbtUtils.getAsciiStringBytes("DataVersion");
 
     private final Arena arena;
     private final MemorySegment segment; // wraps the provided byte[] (zero-copy)
@@ -320,18 +321,35 @@ public class NbtReader2 implements AutoCloseable {
     public <T> @Nullable T readRegistry(Registry<T> registry) {
         Identifier id = readIdentifier();
 
-        if (registry instanceof DefaultedRegistry<T>){
+        if (registry instanceof DefaultedRegistry<T>) {
             // Bypass the default :[
-            var val =registry.getEntry(id);
-            //noinspection OptionalIsPresent
-            if (val.isPresent()){
-                return val.get().value();
-            } else {
+            var val = registry.getEntry(id);
+//            noinspection OptionalIsPresent
+            if (val.isEmpty()) {
                 return null;
             }
-        } else{
-            return registry.get(id);
+            return val.get().value();
         }
+        return registry.get(id);
+    }
+
+    public <T> @NotNull T readRegistryOrThrow(Registry<T> registry) {
+        Identifier id = readIdentifier();
+
+        if (registry instanceof DefaultedRegistry<T>) {
+            // Bypass the default :[
+            var val = registry.getEntry(id);
+            if (val.isEmpty()) {
+                throw new IllegalStateException("Unknown id in registry: " + id);
+            }
+            return val.get().value();
+        }
+
+        T t = registry.get(id);
+        if (t == null) {
+            throw new IllegalStateException("Unknown id in registry: " + id);
+        }
+        return t;
 
     }
 
@@ -544,7 +562,7 @@ public class NbtReader2 implements AutoCloseable {
             case NbtElement.INT_TYPE -> readInt();
             case NbtElement.LONG_TYPE -> (float) readLong();
             case NbtElement.FLOAT_TYPE -> readFloat();
-            case NbtElement.DOUBLE_TYPE -> (float)readDouble();
+            case NbtElement.DOUBLE_TYPE -> (float) readDouble();
             case NbtElement.BYTE_ARRAY_TYPE,
                  NbtElement.STRING_TYPE,
                  NbtElement.LIST_TYPE,
@@ -653,7 +671,7 @@ public class NbtReader2 implements AutoCloseable {
             case NbtElement.INT_TYPE -> readInt();
             case NbtElement.LONG_TYPE -> (float) readLong();
             case NbtElement.FLOAT_TYPE -> readFloat();
-            case NbtElement.DOUBLE_TYPE -> (float)readDouble();
+            case NbtElement.DOUBLE_TYPE -> (float) readDouble();
             case NbtElement.BYTE_ARRAY_TYPE,
                  NbtElement.STRING_TYPE,
                  NbtElement.LIST_TYPE,
@@ -682,7 +700,7 @@ public class NbtReader2 implements AutoCloseable {
         };
     }
 
-    public long @Nullable[] getLongArray(byte tag) {
+    public long @Nullable [] getLongArray(byte tag) {
         return switch (tag) {
             case NbtElement.END_TYPE -> {
                 if (readListSize() == 0) {
@@ -701,13 +719,12 @@ public class NbtReader2 implements AutoCloseable {
                  NbtElement.LIST_TYPE,
                  NbtElement.COMPOUND_TYPE,
                  NbtElement.INT_ARRAY_TYPE,
-                 NbtElement.LONG_ARRAY_TYPE, -1
-                    -> null;
+                 NbtElement.LONG_ARRAY_TYPE, -1 -> null;
             default -> throw new IllegalStateException("Unknown tag type");
         };
     }
 
-    public double @Nullable[] getDoubleArray(byte tag) {
+    public double @Nullable [] getDoubleArray(byte tag) {
         return switch (tag) {
             case NbtElement.END_TYPE -> {
                 if (readListSize() == 0) {

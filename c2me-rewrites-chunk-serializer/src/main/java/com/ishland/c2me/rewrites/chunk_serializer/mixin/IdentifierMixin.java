@@ -6,6 +6,8 @@ import net.minecraft.util.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 
+import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.getAsciiStringBytes;
+
 // TODO: make config option?
 @Mixin(Identifier.class)
 public class IdentifierMixin implements StringBytesConvertible {
@@ -15,6 +17,6 @@ public class IdentifierMixin implements StringBytesConvertible {
     @Override
     public byte[] getStringBytes() {
         return this.serializedStringBytes != null ? this.serializedStringBytes :
-                (this.serializedStringBytes = NbtWriter.getAsciiStringBytes(this.toString()));
+                (this.serializedStringBytes = getAsciiStringBytes(this.toString()));
     }
 }

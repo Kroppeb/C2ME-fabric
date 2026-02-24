@@ -7,6 +7,8 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
+import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.getStringBytes;
+
 @Mixin(ChunkStatus.class)
 public abstract class ChunkStatusMixin implements ChunkStatusAccessor {
     @Shadow public abstract String toString();
@@ -16,6 +18,6 @@ public abstract class ChunkStatusMixin implements ChunkStatusAccessor {
 
     @Override
     public byte[] getIdBytes() {
-        return this.idBytes != null ? this.idBytes : (this.idBytes = NbtWriter.getStringBytes(this.toString()));
+        return this.idBytes != null ? this.idBytes : (this.idBytes = getStringBytes(this.toString()));
     }
 }

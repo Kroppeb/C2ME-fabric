@@ -10,13 +10,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.function.Predicate;
 
+import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.getStringBytes;
+
 @Mixin(Heightmap.Type.class)
 public class HeightMapTypeMixin implements HeightMapTypeAccessor {
     private byte[] nameBytes;
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void postInit(String enum$name, int enum$ordinal, int ordinal, String name, Heightmap.Purpose purpose, Predicate<?> blockPredicate, CallbackInfo ci) {
-        this.nameBytes = NbtWriter.getStringBytes(name);
+        this.nameBytes = getStringBytes(name);
     }
 
     @Override
