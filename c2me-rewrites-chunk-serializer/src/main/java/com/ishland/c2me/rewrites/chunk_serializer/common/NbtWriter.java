@@ -1,5 +1,6 @@
 package com.ishland.c2me.rewrites.chunk_serializer.common;
 
+import com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils;
 import com.ishland.c2me.rewrites.chunk_serializer.common.utils.StringBytesConvertible;
 import com.ishland.c2me.rewrites.chunk_serializer.common.utils.UnsafeUtils;
 import it.unimi.dsi.fastutil.longs.LongCollection;
@@ -16,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.LongStream;
+import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.*;
 
 @SuppressWarnings("WeakerAccess")
 public class NbtWriter {
@@ -217,9 +219,9 @@ public class NbtWriter {
     @Deprecated
     public void putElementList(String name, List<? extends NbtElement> element) {
         if (element.isEmpty()) {
-            this.startFixedList(NbtWriter.getStringBytes(name), element.size(), (byte) 0);
+            this.startFixedList(NbtUtils.getStringBytes(name), element.size(), (byte) 0);
         } else {
-            this.startFixedList(NbtWriter.getStringBytes(name), element.size(), element.get(0).getType());
+            this.startFixedList(NbtUtils.getStringBytes(name), element.size(), element.get(0).getType());
         }
         for (NbtElement elementBase : element) {
             elementBase.accept(this.getVisitor());
@@ -430,69 +432,7 @@ public class NbtWriter {
     //endregion
 
 
-    public static byte @NotNull [] getAsciiStringBytes(String string) {
-        byte[] bytes = string.getBytes(StandardCharsets.UTF_8);
-        for (byte aByte : bytes) {
-            if (aByte <= 0) {
-                throw new IllegalArgumentException("String contains invalid characters");
-            }
-        }
-        return wrapAsciiBytes(bytes);
-    }
 
-    @NotNull
-    private static byte[] wrapAsciiBytes(byte[] bytes) {
-        byte[] wrappedBytes = new byte[bytes.length + 2];
-        // store length in first 2 bytes
-        wrappedBytes[0] = (byte) (bytes.length >> 8);
-        wrappedBytes[1] = (byte) (bytes.length);
-        System.arraycopy(bytes, 0, wrappedBytes, 2, bytes.length);
-        return wrappedBytes;
-    }
-
-    public static byte @NotNull [] getStringBytes(String string) {
-        ;
-        byte[] res = new byte[string.length() * 3 + 2];
-        int index = 2;
-        for (char c : string.toCharArray()) {
-            if (c >= '\u0001' && c <= '\u007f') {
-                res[index++] = (byte) c;
-            } else if (c <= '\u07ff') {
-                res[index++] = (byte) (0xc0 | (0x1f & (c >> 6)));
-                res[index++] = (byte) (0x80 | (0x3f & c));
-            } else {
-                res[index++] = (byte) (0xe0 | (0x0f & (c >> 12)));
-                res[index++] = (byte) (0x80 | (0x3f & (c >> 6)));
-                res[index++] = (byte) (0x80 | (0x3f & c));
-            }
-        }
-
-        int length = index - 2;
-
-        if (length > 65535) {
-            throw new RuntimeException(new UTFDataFormatException("String too large"));
-        }
-
-        res[0] = (byte) (length >> 8);
-        res[1] = (byte) (length);
-
-        return Arrays.copyOf(res, index);
-    }
-
-    public static <T> byte @NotNull [] getNameBytesFromRegistry(Registry<T> registry, T value) {
-        return getNameBytesFromId(registry.getId(value));
-    }
-
-    public static <T> byte @NotNull [] getNameBytesFromRegistry(RegistryEntry<T> value) {
-        return getNameBytesFromId(value.getKey().get().getValue());
-    }
-
-    public static <T> byte @NotNull [] getNameBytesFromId(Identifier id) {
-        if (id instanceof StringBytesConvertible stringBytesConvertible) {
-            return stringBytesConvertible.getStringBytes();
-        }
-        return getAsciiStringBytes(id.toString());
-    }
 
     public NbtWriterVisitor getVisitor() {
         if (this.visitor == null) {

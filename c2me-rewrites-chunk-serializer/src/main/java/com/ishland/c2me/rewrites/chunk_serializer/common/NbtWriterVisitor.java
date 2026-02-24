@@ -1,8 +1,11 @@
 package com.ishland.c2me.rewrites.chunk_serializer.common;
 
 import com.ishland.c2me.base.mixin.access.INbtList;
+import com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils;
 import net.minecraft.nbt.*;
 import net.minecraft.nbt.visitor.NbtElementVisitor;
+import static com.ishland.c2me.rewrites.chunk_serializer.common.utils.NbtUtils.*;
+
 
 public class NbtWriterVisitor implements NbtElementVisitor {
     private final NbtWriter writer;
@@ -13,7 +16,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
 
     @Override
     public void visitString(NbtString element) {
-        this.writer.putStringEntry(NbtWriter.getStringBytes(element.value()));
+        this.writer.putStringEntry(NbtUtils.getStringBytes(element.value()));
     }
 
     @Override
@@ -95,7 +98,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitString(String name, NbtString element) {
-        this.visitString(NbtWriter.getStringBytes(name), element);
+        this.visitString(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitByte(byte[] name, NbtByte element) {
@@ -103,7 +106,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitByte(String name, NbtByte element) {
-        this.visitByte(NbtWriter.getStringBytes(name), element);
+        this.visitByte(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitShort(byte[] name, NbtShort element) {
@@ -111,7 +114,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitShort(String name, NbtShort element) {
-        this.visitShort(NbtWriter.getStringBytes(name), element);
+        this.visitShort(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitInt(byte[] name, NbtInt element) {
@@ -119,7 +122,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitInt(String name, NbtInt element) {
-        this.visitInt(NbtWriter.getStringBytes(name), element);
+        this.visitInt(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitLong(byte[] name, NbtLong element) {
@@ -127,7 +130,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitLong(String name, NbtLong element) {
-        this.visitLong(NbtWriter.getStringBytes(name), element);
+        this.visitLong(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitFloat(byte[] name, NbtFloat element) {
@@ -135,7 +138,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitFloat(String name, NbtFloat element) {
-        this.visitFloat(NbtWriter.getStringBytes(name), element);
+        this.visitFloat(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitDouble(byte[] name, NbtDouble element) {
@@ -143,7 +146,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitDouble(String name, NbtDouble element) {
-        this.visitDouble(NbtWriter.getStringBytes(name), element);
+        this.visitDouble(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitByteArray(byte[] name, NbtByteArray element) {
@@ -151,7 +154,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitByteArray(String name, NbtByteArray element) {
-        this.visitByteArray(NbtWriter.getStringBytes(name), element);
+        this.visitByteArray(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitIntArray(byte[] name, NbtIntArray element) {
@@ -159,7 +162,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitIntArray(String name, NbtIntArray element) {
-        this.visitIntArray(NbtWriter.getStringBytes(name), element);
+        this.visitIntArray(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitLongArray(byte[] name, NbtLongArray element) {
@@ -167,7 +170,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitLongArray(String name, NbtLongArray element) {
-        this.visitLongArray(NbtWriter.getStringBytes(name), element);
+        this.visitLongArray(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitList(byte[] name, NbtList element) {
@@ -190,7 +193,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitList(String name, NbtList element) {
-        this.visitList(NbtWriter.getStringBytes(name), element);
+        this.visitList(NbtUtils.getStringBytes(name), element);
     }
 
     public void visitCompound(byte[] name, NbtCompound compound) {
@@ -203,7 +206,7 @@ public class NbtWriterVisitor implements NbtElementVisitor {
     }
 
     public void visitCompound(String name, NbtCompound compound) {
-        this.visitCompound(NbtWriter.getStringBytes(name), compound);
+        this.visitCompound(NbtUtils.getStringBytes(name), compound);
     }
 
     public void visit(String nameBase, NbtElement element) {
